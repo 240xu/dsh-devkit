@@ -233,6 +233,7 @@ window.__ModuleLoader__.load({
 
     // --- palette prefixes / MRU (dual-source: mirrors src/core.js) ---------------
     // DUAL-SOURCE with core.js parsePaletteQuery / pushMru / applyMruRank /
+    // pluginSource / sortCommandsBySource / normalizeSearchResults /
     // MRU_KEY / MRU_CAP — test/consistency.test.js hashes both copies.
 
     const MRU_KEY = 'dsh-devkit-mru'
@@ -258,6 +259,31 @@ window.__ModuleLoader__.load({
         .map((item, i) => ({ item, i, r: rank.has(item.id) ? rank.get(item.id) : Number.MAX_SAFE_INTEGER }))
         .sort((a, b) => (a.r === b.r ? a.i - b.i : a.r - b.r))
         .map((x) => x.item)
+    }
+
+    function pluginSource(id) {
+      return String(id || '').split('.')[0]
+    }
+
+    function sortCommandsBySource(commands) {
+      return commands
+        .map((c, i) => ({ c, i, g: pluginSource(c.id) }))
+        .sort((a, b) => (a.g === b.g ? a.i - b.i : a.g < b.g ? -1 : 1))
+        .map((x) => x.c)
+    }
+
+    function normalizeSearchResults(data) {
+      const rows = data && Array.isArray(data.results) ? data.results
+        : data && Array.isArray(data.hits) ? data.hits
+        : Array.isArray(data) ? data : []
+      return rows
+        .map((r) => ({
+          id: String((r && (r.sessionId || r.session)) || ''),
+          title: (r && (r.title || r.sessionTitle)) || String((r && (r.sessionId || r.session)) || ''),
+          seq: r && typeof r.seq === 'number' ? r.seq : null,
+          snippet: (r && (r.snippet || r.preview || r.context)) || '',
+        }))
+        .filter((r) => r.id)
     }
 
     class ProbeCache {
@@ -331,6 +357,9 @@ window.__ModuleLoader__.load({
         '@media (prefers-reduced-motion: reduce){',
         '  [data-devkit-toast]{animation:none}',
         '  [data-devkit-toast].dsh-devkit-toast-out{animation:none}',
+        '}',
+        '@media (prefers-contrast: more){',
+        '  [data-devkit-toast]{border-width:2px;font-weight:600}',
         '}',
       ].join('\n')
       document.head.appendChild(tag)
@@ -454,7 +483,6 @@ window.__ModuleLoader__.load({
     // independent of the React lifecycle.
 
     var __overlayOpen = false
-    var __closeOverlay = () => {}
 
     function openOverlay(mode) {
       window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { mode } }))
@@ -758,7 +786,7 @@ window.__ModuleLoader__.load({
           const m = e && e.detail && e.detail.mode ? e.detail.mode : 'palette'
           // Record the focus origin so close() can restore it (fe-ui D1).
           try { prevFocusRef.current = document.activeElement } catch { /* no DOM */ }
-          setMode(m === 'palette' && (e.detail.sessionPick) ? 'sessions' : m)
+          setMode(m)
           setQuery(e.detail && e.detail.preset ? String(e.detail.preset) : '')
           setSelected(0)
           setBusy(false)
@@ -823,17 +851,17 @@ window.__ModuleLoader__.load({
       //   '>' commands · '#' session search · '@' plugin groups · none = mixed
       const isPalette = mode === 'palette'
       const pal = parsePaletteQuery(query)
-      const palKind = isPalette ? pal.mode : null // commands | sessions | plugins | mixed
+      const palMode = isPalette ? pal.mode : null // commands | sessions | plugins | mixed
       const isSessions = mode === 'sessions'
 
       // MRU (recently-run commands), persisted in localStorage.
       const [mru, setMru] = useState(() => {
-        try { return JSON.parse(window.localStorage.getItem('dsh-devkit-mru') || '[]') } catch { return [] }
+        try { return JSON.parse(window.localStorage.getItem(MRU_KEY) || '[]') } catch { return [] }
       })
       const recordMru = useCallback((id) => {
         setMru((prev) => {
           const next = pushMru(prev, id)
-          try { window.localStorage.setItem('dsh-devkit-mru', JSON.stringify(next)) } catch { /* storage may be unavailable */ }
+          try { window.localStorage.setItem(MRU_KEY, JSON.stringify(next)) } catch { /* storage may be unavailable */ }
           return next
         })
       }, [])
@@ -843,15 +871,15 @@ window.__ModuleLoader__.load({
       // Local title match over the sessions store (also the '#' fallback when
       // dsh-session-search is absent).
       const localSessions = useMemo(() => {
-        if (!isSessions && !(isPalette && (palKind === 'sessions' || palKind === 'mixed'))) return []
+        if (!isSessions && !(isPalette && (palMode === 'sessions' || palMode === 'mixed'))) return []
         return matchCommands(sessions.map((s) => ({ id: s.id, title: s.title, keywords: [] })), isSessions ? query : pal.rest, 'zh')
           .map((m) => sessions.find((s) => s.id === m.id))
-      }, [isSessions, isPalette, palKind, pal.rest, sessions, query])
+      }, [isSessions, isPalette, palMode, pal.rest, sessions, query])
 
       // Full-text results via dsh-session-search (probe-gated, debounced).
       const [ftResults, setFtResults] = useState(null) // null = not using / unavailable
       useEffect(() => {
-        if (!isPalette || palKind !== 'sessions' || pal.rest.trim().length < 2) {
+        if (!isPalette || palMode !== 'sessions' || pal.rest.trim().length < 2) {
           setFtResults(null)
           return undefined
         }
@@ -863,38 +891,26 @@ window.__ModuleLoader__.load({
               .then((r) => (r.ok ? r.json() : null))
               .then((data) => {
                 if (dead) return
-                const rows = data && Array.isArray(data.results) ? data.results
-                  : data && Array.isArray(data.hits) ? data.hits
-                  : Array.isArray(data) ? data : []
-                setFtResults(rows.map((r) => ({
-                  id: String(r.sessionId || r.session || ''),
-                  title: r.title || r.sessionTitle || String(r.sessionId || r.session || ''),
-                  seq: typeof r.seq === 'number' ? r.seq : null,
-                  snippet: r.snippet || r.preview || r.context || '',
-                })).filter((r) => r.id))
+                setFtResults(normalizeSearchResults(data))
               })
               .catch(() => { if (!dead) setFtResults(null) })
           })
         }, 250)
         return () => { dead = true; clearTimeout(timer) }
-      }, [isPalette, palKind, pal.rest])
+      }, [isPalette, palMode, pal.rest])
 
       const commands = useMemo(() => {
         if (mode === null || isSessions) return []
-        if (isPalette && palKind === 'sessions') return []
+        if (isPalette && palMode === 'sessions') return []
         const matched = matchCommands(__commands, isPalette ? pal.rest : query, localeFallbackLang())
-        if (isPalette && palKind === 'plugins') {
+        if (isPalette && palMode === 'plugins') {
           // '@': group by registration source (id prefix), stable within group.
-          return matched.slice().sort((a, b) => {
-            const ga = a.id.split('.')[0]
-            const gb = b.id.split('.')[0]
-            return ga === gb ? 0 : (ga < gb ? -1 : 1)
-          })
+          return sortCommandsBySource(matched)
         }
         // commands + mixed: MRU first.
         return applyMruRank(matched, mru)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [mode, isSessions, isPalette, palKind, pal.rest, query, registryRev, mru])
+      }, [mode, isSessions, isPalette, palMode, pal.rest, query, registryRev, mru])
 
       // Unified selectable items. Command items keep {kind:'command'}; session
       // items {kind:'session'} (local store or full-text hit).
@@ -902,18 +918,18 @@ window.__ModuleLoader__.load({
         if (mode === null) return []
         if (isSessions) return localSessions.map((s) => ({ kind: 'session', ...s }))
         if (!isPalette) return commands.map((c) => ({ kind: 'command', ...c }))
-        if (palKind === 'sessions') {
+        if (palMode === 'sessions') {
           if (ftResults && ftResults.length) return ftResults.map((r) => ({ kind: 'ft', ...r }))
           return localSessions.map((s) => ({ kind: 'session', ...s }))
         }
-        if (palKind === 'mixed') {
+        if (palMode === 'mixed') {
           return [
             ...commands.map((c) => ({ kind: 'command', ...c })),
             ...localSessions.map((s) => ({ kind: 'session', ...s })),
           ]
         }
         return commands.map((c) => ({ kind: 'command', ...c }))
-      }, [mode, isSessions, isPalette, palKind, commands, localSessions, ftResults])
+      }, [mode, isSessions, isPalette, palMode, commands, localSessions, ftResults])
 
       useEffect(() => { if (selected >= items.length) setSelected(0) }, [items.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -935,8 +951,9 @@ window.__ModuleLoader__.load({
         }
         close()
         recordMru(item.id)
-        try { Promise.resolve(item.run()).catch((e) => toast(String(e && e.message ? e.message : e), { kind: 'error' })) }
-        catch (e) { toast(String(e && e.message ? e.message : e), { kind: 'error' }) }
+        const fail = (e) => toast('[' + item.id + '] ' + String(e && e.message ? e.message : e), { kind: 'error' })
+        try { Promise.resolve(item.run()).catch(fail) }
+        catch (e) { fail(e) }
       }, [close, recordMru])
 
       const onInputKeyDown = useCallback((e) => {
@@ -1005,10 +1022,10 @@ window.__ModuleLoader__.load({
       } else {
         // palette (+ prefix modes) and sessions share the input/list layout
         const placeholder = isSessions ? t('palette.sessionsPlaceholder')
-          : palKind === 'sessions' ? t('palette.sessionsSearchPlaceholder')
+          : palMode === 'sessions' ? t('palette.sessionsSearchPlaceholder')
           : t('palette.placeholder')
         const emptyLabel = isSessions ? t('sessions.empty')
-          : palKind === 'sessions' && ftResults === null ? t('sessions.localOnly')
+          : palMode === 'sessions' && ftResults === null ? t('sessions.localOnly')
           : t('palette.empty')
         body = [
           React.createElement('input', {
@@ -1025,6 +1042,7 @@ window.__ModuleLoader__.load({
             role: 'combobox',
             'aria-expanded': 'true',
             'aria-controls': 'devkit-list',
+            'aria-autocomplete': 'list',
             'aria-activedescendant': items.length ? 'devkit-opt-' + selected : undefined,
           }),
           React.createElement('div', { key: 'list', ref: listRef, id: 'devkit-list', style: listStyle, role: 'listbox' },
@@ -1047,7 +1065,7 @@ window.__ModuleLoader__.load({
                   } else if (item.foreign) {
                     badge = 'plugin'
                   }
-                  if (palKind === 'plugins' && isCmd) badge = item.id.split('.')[0]
+                  if (palMode === 'plugins' && isCmd) badge = pluginSource(item.id)
                   return React.createElement('div', {
                     key: (item.id || i) + ':' + i,
                     style: {

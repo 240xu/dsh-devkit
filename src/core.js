@@ -266,3 +266,36 @@ export class ProbeCache {
     return ok
   }
 }
+
+// --- small pure helpers extracted from the palette ------------------------------
+
+// Registration source of a command: the id segment before the first dot.
+export function pluginSource(id) {
+  return String(id || '').split('.')[0]
+}
+
+// '@' plugin-group mode: stable sort commands by registration source, keeping
+// registration order within each group.
+export function sortCommandsBySource(commands) {
+  return commands
+    .map((c, i) => ({ c, i, g: pluginSource(c.id) }))
+    .sort((a, b) => (a.g === b.g ? a.i - b.i : a.g < b.g ? -1 : 1))
+    .map((x) => x.c)
+}
+
+// Normalize a full-text search payload into [{id, title, seq, snippet}].
+// Accepts {results:[…]} / {hits:[…]} / a bare array so the devkit side keeps
+// working across dsh-session-search response revisions (fail-soft to []).
+export function normalizeSearchResults(data) {
+  const rows = data && Array.isArray(data.results) ? data.results
+    : data && Array.isArray(data.hits) ? data.hits
+    : Array.isArray(data) ? data : []
+  return rows
+    .map((r) => ({
+      id: String((r && (r.sessionId || r.session)) || ''),
+      title: (r && (r.title || r.sessionTitle)) || String((r && (r.sessionId || r.session)) || ''),
+      seq: r && typeof r.seq === 'number' ? r.seq : null,
+      snippet: (r && (r.snippet || r.preview || r.context)) || '',
+    }))
+    .filter((r) => r.id)
+}

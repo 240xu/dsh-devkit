@@ -148,3 +148,14 @@ MIT
 | 搜索会话历史 / `#` 全文搜索 | dsh-session-search（W2 新插件） | `GET /api/session-search/health` | 命令不注册；`#` 降级为标题匹配 |
 | 打开 lazy-view 面板 | session-lazy-view | `GET /lazyview` → 200 | 命令不注册 |
 | 切换/新建会话、会话标题搜索、复制 ID | 宿主 sessions 服务 | ctx.inject 延迟注入 | toast 提示 |
+
+## 权威依据与取舍（0.2.1 整洁度 pass）
+
+| # | 依据 | 结论 |
+| --- | --- | --- |
+| 1 | [WAI-ARIA APG Combobox Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/) | **部分采纳**。已符合：DOM 焦点驻留 combobox + `aria-activedescendant` 指向 option、`aria-controls`/`aria-expanded`、Enter 接受选项、Esc 关闭 popup、可打印字符照常输入（APG 明确要求 JS 不得干扰浏览器原生文本编辑键——我们只拦截 Tab/Esc/箭头/Enter）。本轮补上 `aria-autocomplete="list"`。**拒绝** PageUp/PageDown 与 Home/End 选项跳转（APG 标注 Optional）：面板列表通常 <30 项、↑↓ 已覆盖；Home/End 保持浏览器原生文本光标行为，与 APG「可编辑 combobox 支持平台标准文本编辑键」一致。 |
+| 2 | [VS Code Quick Open 的 fuzzy 匹配](https://code.visualstudio.com/docs/getstarted/userinterface#_quick-open)（实现为 subsequence 打分，见 microsoft/vscode `fuzzyScorer.ts`） | **拒绝本轮升级，留给 roadmap 模糊匹配阶段**。理由：(a) 当前 token-AND 子串匹配已覆盖中英与 id 命中场景，zh 无空格分词使 subsequence 误召率高；(b) 命令数 <500 时 O(n·m) 性能完全可接受（每键重算 <1ms），收益是排序质量而非可行性；(c) subsequence 打分涉及首字母/连字符边界权重，需配套 MRU 权重融合，属独立迭代。 |
+| 3 | localStorage vs 内存 + storage 事件（MRU 持久化） | **采纳 localStorage**。roadmap W1 验收标准明确「MRU 数据刷新后重开面板仍生效」，内存方案不满足；storage 事件跨 Tab 同步对本场景无需求（MRU 是个人偏好态，弱一致性可接受）。try/catch 包裹读写，隐私模式/配额满时静默降级为会话内 MRU。 |
+| 4 | [MDN prefers-contrast](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-contrast) | **采纳（轻量）**。在 prefers-reduced-motion 之外补充 `@media (prefers-contrast: more)`：toast 边框加粗 + 字重 600，用既有 --dsw 令牌不引入新色值。未做完整高对比度主题（宿主主题系统职责，越界）。 |
+
+本轮整洁度 pass 附带：palette 纯逻辑下沉 core.js（`pluginSource`/`sortCommandsBySource`/`normalizeSearchResults`，client 只留薄壳，consistency 快照同步扩展）；命名统一 `palKind`→`palMode`（与 `parsePaletteQuery().mode` 对齐）；错误 toast 统一携带 `[命令 id]` 定位；死代码清理（无生产者的 `sessionPick` 分支、未引用的 `__closeOverlay`、MRU key 字面量改用 `MRU_KEY` 常量）。

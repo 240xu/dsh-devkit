@@ -121,3 +121,49 @@ test('probe with fetchImpl null falls back to global fetch when present', async 
     g.fetch = saved
   }
 })
+
+// --- extracted palette helpers (0.2.1 tidiness pass) ------------------------------
+
+import { pluginSource, sortCommandsBySource, normalizeSearchResults } from '../src/core.js'
+
+test('pluginSource takes the id segment before the first dot', () => {
+  assert.equal(pluginSource('devkit.session.copyId'), 'devkit')
+  assert.equal(pluginSource('myplugin.run'), 'myplugin')
+  assert.equal(pluginSource('nodot'), 'nodot')
+  assert.equal(pluginSource(''), '')
+  assert.equal(pluginSource(null), '')
+})
+
+test('sortCommandsBySource groups by source, stable within group', () => {
+  const cmds = [
+    { id: 'beta.a' }, { id: 'alpha.z' }, { id: 'beta.b' }, { id: 'alpha.a' },
+  ]
+  const out = sortCommandsBySource(cmds).map((c) => c.id)
+  // stable: within alpha, z before a (registration order preserved)
+  assert.deepEqual(out, ['alpha.z', 'alpha.a', 'beta.a', 'beta.b'])
+})
+
+test('sortCommandsBySource does not mutate input', () => {
+  const cmds = [{ id: 'b.x' }, { id: 'a.y' }]
+  sortCommandsBySource(cmds)
+  assert.deepEqual(cmds.map((c) => c.id), ['b.x', 'a.y'])
+})
+
+test('normalizeSearchResults accepts {results}, {hits}, bare array, junk', () => {
+  const row = { sessionId: 's1', title: 'T', seq: 3, snippet: 'hit' }
+  for (const payload of [{ results: [row] }, { hits: [row] }, [row]]) {
+    const out = normalizeSearchResults(payload)
+    assert.deepEqual(out, [{ id: 's1', title: 'T', seq: 3, snippet: 'hit' }])
+  }
+  assert.deepEqual(normalizeSearchResults({ error: 'x' }), [])
+  assert.deepEqual(normalizeSearchResults(null), [])
+})
+
+test('normalizeSearchResults maps alternative field names and drops id-less rows', () => {
+  const out = normalizeSearchResults([
+    { session: 's2', sessionTitle: 'alt', preview: 'p', seq: 1.5 },
+    { title: 'no id' },
+    { context: 'ctx' },
+  ])
+  assert.deepEqual(out, [{ id: 's2', title: 'alt', seq: 1.5, snippet: 'p' }])
+})

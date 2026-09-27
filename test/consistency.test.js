@@ -47,7 +47,7 @@ function hashPair(name) {
   return { a: h(a), b: h(b), present: !!(a && b) }
 }
 
-const KEY_FUNCTIONS = ['matchCommands', 'isTextInputTarget', 'parsePaletteQuery', 'pushMru', 'applyMruRank', 'feed'] // feed = ChordResolver.feed method
+const KEY_FUNCTIONS = ['matchCommands', 'isTextInputTarget', 'parsePaletteQuery', 'pushMru', 'applyMruRank', 'pluginSource', 'sortCommandsBySource', 'normalizeSearchResults', 'feed'] // feed = ChordResolver.feed method
 
 test('dual-source thin copies are in sync (core.js vs client.js)', () => {
   const report = KEY_FUNCTIONS.map((name) => {
