@@ -20,7 +20,7 @@
 // thin copies of matchCommands / isTextInputTarget / chord handling so the
 // shipped bundle stays self-contained. This file is the tested reference.
 
-export const VERSION = '0.2.0'
+export const VERSION = '0.2.2'
 
 // Static metadata for the built-in commands. `run` lives only in the client.
 export const BUILTIN_COMMANDS = [
@@ -87,6 +87,14 @@ export const BUILTIN_COMMANDS = [
     shortcut: null,
     keywordsZh: ['搜索', '历史', '全文', 'search', 'history'],
     keywordsEn: ['search', 'history', 'full-text'],
+  },
+  {
+    id: 'devkit.searchPanel',
+    titleZh: '打开会话搜索面板…（需 dsh-session-search）',
+    titleEn: 'Open session search panel… (needs dsh-session-search)',
+    shortcut: null,
+    keywordsZh: ['搜索', '面板', '全文', 'search', 'panel'],
+    keywordsEn: ['search', 'panel', 'full-text'],
   },
   {
     id: 'devkit.lazyview',

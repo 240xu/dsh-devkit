@@ -159,3 +159,8 @@ MIT
 | 4 | [MDN prefers-contrast](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-contrast) | **采纳（轻量）**。在 prefers-reduced-motion 之外补充 `@media (prefers-contrast: more)`：toast 边框加粗 + 字重 600，用既有 --dsw 令牌不引入新色值。未做完整高对比度主题（宿主主题系统职责，越界）。 |
 
 本轮整洁度 pass 附带：palette 纯逻辑下沉 core.js（`pluginSource`/`sortCommandsBySource`/`normalizeSearchResults`，client 只留薄壳，consistency 快照同步扩展）；命名统一 `palKind`→`palMode`（与 `parsePaletteQuery().mode` 对齐）；错误 toast 统一携带 `[命令 id]` 定位；死代码清理（无生产者的 `sessionPick` 分支、未引用的 `__closeOverlay`、MRU key 字面量改用 `MRU_KEY` 常量）。
+
+### 0.2.2（W2 协作接线收尾）
+
+- 新增命令**打开会话搜索面板…**（`devkit.searchPanel`）：`window.open('/api/session-search/panel')`，与「搜索会话历史」同受 `GET /api/session-search/health` 探测门控。
+- 探测端点 URL 与 dsh-session-search v0.1.0 实际契约核对一致：`/api/session-search/health`（探测）、`/api/session-search/search?q=`（全文）、`/api/session-search/panel`（面板页，本轮新增深链——0.2.0 时预留的「发现方式待 W2 敲定」事项落地）。

@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
     // N2: classic-script bundle cannot import package.json; bundler-side
     // injection is not part of the client-modules protocol, so a literal with
     // a sync note is the simplest single source. Bump together with package.json.
-    const VERSION = '0.1.2'
+    const VERSION = '0.2.2'
     const OVERLAY_SLOT = 'shell.overlay'
     const HEADER_SLOT = 'conversation.session.header.actions'
     const OVERLAY_ID = 'devkit-overlay'
@@ -84,6 +84,7 @@ window.__ModuleLoader__.load({
       'toast.copyFail': '复制失败：',
       'toast.openFail': '打开会话失败（会话可能已被删除）',
       'cmd.searchHistory': '搜索会话历史…',
+      'cmd.searchPanel': '打开会话搜索面板…',
       'cmd.lazyview': '打开 lazy-view 面板…',
       'cmd.copyId': '复制当前会话 ID',
       'confirmDelete.title': '删除当前会话',
@@ -134,6 +135,7 @@ window.__ModuleLoader__.load({
       'toast.copyFail': 'Copy failed: ',
       'toast.openFail': 'Failed to open session (it may have been deleted)',
       'cmd.searchHistory': 'Search session history…',
+      'cmd.searchPanel': 'Open session search panel…',
       'cmd.lazyview': 'Open lazy-view panel…',
       'cmd.copyId': 'Copy current session ID',
       'confirmDelete.title': 'Delete current session',
@@ -625,6 +627,12 @@ window.__ModuleLoader__.load({
           title: __t('cmd.searchHistory'),
           keywords: ['搜索', '历史', '全文', 'search', 'history'],
           run: () => window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { mode: 'palette', preset: '#' } })),
+        })
+        registerCommand({
+          id: 'devkit.searchPanel',
+          title: __t('cmd.searchPanel'),
+          keywords: ['搜索', '面板', '全文', 'search', 'panel'],
+          run: () => { try { window.open('/api/session-search/panel', '_blank') } catch { window.location.assign('/api/session-search/panel') } },
         })
         notifyRegistry()
       })
