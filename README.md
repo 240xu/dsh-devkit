@@ -112,3 +112,9 @@ MIT
 - 【P1】`registerCommand` 同 id 幂等去重：同 run 返回原注销函数，冲突 run `console.warn` 并忽略，不再 throw（suite 共识修订）。
 - 【P1】Toast 容器补 `role="status" aria-live="polite"`；toast 动画加 `prefers-reduced-motion` 关断（fe-ui D4/D5）。
 - core.js / client.js 双源薄拷贝加互指头注释，新增 `test/consistency.test.js` 关键函数哈希一致性快照测试。
+
+### 0.1.2（R3 收尾）
+
+- 【N1·P1】confirmDelete 弹层 Tab 在「删除/取消」两按钮间首尾循环，与全局焦点陷阱一致。
+- 【N2·P3】client VERSION 更新为 0.1.2，注明 classic-script 无法 import package.json、以字面量+同步注释为单一来源。
+- 【D2】面板输入框补 `role="combobox" aria-expanded aria-controls="devkit-list" aria-activedescendant`，列表项补 `id="devkit-opt-N"`，读屏可朗读「第 N 项已选中」。

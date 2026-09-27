@@ -32,7 +32,10 @@ window.__ModuleLoader__.load({
     const { useCallback, useEffect, useMemo, useRef, useState } = React
 
     const PLUGIN_ID = '@240xu/dsh-devkit'
-    const VERSION = '0.1.0'
+    // N2: classic-script bundle cannot import package.json; bundler-side
+    // injection is not part of the client-modules protocol, so a literal with
+    // a sync note is the simplest single source. Bump together with package.json.
+    const VERSION = '0.1.2'
     const OVERLAY_SLOT = 'shell.overlay'
     const HEADER_SLOT = 'conversation.session.header.actions'
     const OVERLAY_ID = 'devkit-overlay'
@@ -608,6 +611,7 @@ window.__ModuleLoader__.load({
       const [registryRev, setRegistryRev] = useState(0)
       const inputRef = useRef(null)
       const confirmBtnRef = useRef(null)
+      const cancelBtnRef = useRef(null)
       const listRef = useRef(null)
 
       useEffect(() => {
@@ -666,14 +670,19 @@ window.__ModuleLoader__.load({
             close()
             return
           }
-          // fe-ui D1 focus trap: the panel currently has a single focusable
-          // element (the palette input), so Tab is simply bounced back —
-          // focus can never escape into the masked background page. If the
-          // panel ever grows multiple focusables, replace this with a
-          // first/last element wrap.
+          // fe-ui D1 focus trap. Palette modes have a single focusable
+          // element (the input), so Tab is simply bounced back. The confirm
+          // dialog has two buttons — wrap focus between them (first/last
+          // element cycle) instead of dead-ending on one.
           if (e.key === 'Tab') {
             e.preventDefault()
             e.stopPropagation()
+            if (mode === 'confirmDelete' && cancelBtnRef.current && confirmBtnRef.current) {
+              const next = document.activeElement === confirmBtnRef.current
+                ? cancelBtnRef.current
+                : confirmBtnRef.current
+              try { next.focus() } catch { /* best effort */ }
+            }
           }
         }
         window.addEventListener('keydown', onKey, true)
@@ -767,7 +776,7 @@ window.__ModuleLoader__.load({
           cur ? React.createElement('div', { key: 'id', style: { fontSize: 12, lineHeight: '18px', margin: '8px 0 14px', color: 'var(--dsw-alias-label-secondary,#8a8a8e)', wordBreak: 'break-all' } }, curInfo + ' · ' + cur) : null,
           React.createElement('div', { key: 'btns', style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } }, [
             React.createElement('button', {
-              key: 'c', type: 'button', disabled: busy, onClick: close,
+              key: 'c', type: 'button', ref: cancelBtnRef, disabled: busy, onClick: close,
               style: { padding: '8px 18px', minHeight: 36, borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.4))', background: 'transparent', color: 'inherit', fontSize: 13, cursor: busy ? 'default' : 'pointer' },
             }, t('confirmDelete.cancel')),
             React.createElement('button', {
@@ -794,8 +803,14 @@ window.__ModuleLoader__.load({
             onChange: (e) => { setQuery(e.target.value); setSelected(0) },
             onKeyDown: onInputKeyDown,
             'aria-label': title,
+            // fe-ui D2: combobox wiring so screen readers announce
+            // "option N, selected" while typing.
+            role: 'combobox',
+            'aria-expanded': 'true',
+            'aria-controls': 'devkit-list',
+            'aria-activedescendant': items.length ? 'devkit-opt-' + selected : undefined,
           }),
-          React.createElement('div', { key: 'list', ref: listRef, style: listStyle, role: 'listbox' },
+          React.createElement('div', { key: 'list', ref: listRef, id: 'devkit-list', style: listStyle, role: 'listbox' },
             items.length === 0
               ? React.createElement('div', { style: { ...rowStyle, color: 'var(--dsw-alias-label-secondary,#8a8a8e)', cursor: 'default' } }, [
                   React.createElement('span', { key: 'e' }, emptyLabel),
@@ -813,6 +828,7 @@ window.__ModuleLoader__.load({
                       background: i === selected ? 'var(--dsw-alias-interactive-bg-selected, rgba(128,128,128,.18))' : 'transparent',
                     },
                     'data-selected': i === selected ? '1' : '0',
+                    id: 'devkit-opt-' + i, // fe-ui D2: combobox activedescendant target
                     role: 'option',
                     'aria-selected': i === selected ? 'true' : 'false',
                     onMouseEnter: () => setSelected(i),
