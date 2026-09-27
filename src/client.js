@@ -49,7 +49,7 @@ window.__ModuleLoader__.load({
       'palette.placeholder': '输入命令名…（↑↓ 选择，Enter 执行，Esc 关闭）',
       'palette.sessionsPlaceholder': '输入会话名过滤…（Enter 打开选中会话）',
       'palette.empty': '没有匹配命令',
-      'palette.hint': '提示：Ctrl+K Ctrl+S 查看快捷键速查表',
+      'palette.hint': '提示：> 命令 · # 会话搜索 · @ 插件分组 · Ctrl+K Ctrl+S 快捷键',
       'sessions.title': '切换会话',
       'sessions.empty': '没有匹配会话',
       'sessions.current': '当前',
@@ -76,6 +76,16 @@ window.__ModuleLoader__.load({
       'toast.exporting': '正在导出…',
       'toast.websearch': '已请求打开 Websearch 设置；若未弹出，请从宿主设置面板打开',
       'toast.websearchUnavailable': 'Websearch 设置暂不可用（插件未安装或无响应）',
+      'palette.sessionsSearchPlaceholder': '全文搜索会话（# 前缀）…',
+      'sessions.localOnly': '没有匹配会话（全文索引不可用，仅标题匹配）',
+      'badge.recent': '最近',
+      'badge.fullText': '全文',
+      'toast.copied': '已复制会话 ID',
+      'toast.copyFail': '复制失败：',
+      'toast.openFail': '打开会话失败（会话可能已被删除）',
+      'cmd.searchHistory': '搜索会话历史…',
+      'cmd.lazyview': '打开 lazy-view 面板…',
+      'cmd.copyId': '复制当前会话 ID',
       'confirmDelete.title': '删除当前会话',
       'confirmDelete.desc': '将永久删除该会话及其全部对话记录，此操作不可恢复。',
       'confirmDelete.cancel': '取消',
@@ -116,6 +126,16 @@ window.__ModuleLoader__.load({
       'toast.exporting': 'Exporting…',
       'toast.websearch': 'Requested websearch settings; open it from host settings if nothing popped up',
       'toast.websearchUnavailable': 'Websearch settings unavailable (plugin missing or not responding)',
+      'palette.sessionsSearchPlaceholder': 'Full-text search sessions (# prefix)…',
+      'sessions.localOnly': 'No matching sessions (full-text index unavailable; titles only)',
+      'badge.recent': 'recent',
+      'badge.fullText': 'full-text',
+      'toast.copied': 'Session ID copied',
+      'toast.copyFail': 'Copy failed: ',
+      'toast.openFail': 'Failed to open session (it may have been deleted)',
+      'cmd.searchHistory': 'Search session history…',
+      'cmd.lazyview': 'Open lazy-view panel…',
+      'cmd.copyId': 'Copy current session ID',
       'confirmDelete.title': 'Delete current session',
       'confirmDelete.desc': 'This permanently deletes the session and all of its conversation records. This cannot be undone.',
       'confirmDelete.cancel': 'Cancel',
@@ -210,6 +230,63 @@ window.__ModuleLoader__.load({
         return { action: null, consume: false }
       }
     }
+
+    // --- palette prefixes / MRU (dual-source: mirrors src/core.js) ---------------
+    // DUAL-SOURCE with core.js parsePaletteQuery / pushMru / applyMruRank /
+    // MRU_KEY / MRU_CAP — test/consistency.test.js hashes both copies.
+
+    const MRU_KEY = 'dsh-devkit-mru'
+    const MRU_CAP = 20
+
+    function parsePaletteQuery(query) {
+      const q = String(query || '')
+      const first = q.charAt(0)
+      if (first === '>') return { mode: 'commands', rest: q.slice(1) }
+      if (first === '#') return { mode: 'sessions', rest: q.slice(1) }
+      if (first === '@') return { mode: 'plugins', rest: q.slice(1) }
+      return { mode: 'mixed', rest: q }
+    }
+
+    function pushMru(list, id, cap = MRU_CAP) {
+      const prev = Array.isArray(list) ? list.filter((x) => x !== id) : []
+      return [id, ...prev].slice(0, cap)
+    }
+
+    function applyMruRank(items, mru) {
+      const rank = new Map((mru || []).map((id, i) => [id, i]))
+      return items
+        .map((item, i) => ({ item, i, r: rank.has(item.id) ? rank.get(item.id) : Number.MAX_SAFE_INTEGER }))
+        .sort((a, b) => (a.r === b.r ? a.i - b.i : a.r - b.r))
+        .map((x) => x.item)
+    }
+
+    class ProbeCache {
+      constructor(opts) {
+        const o = opts || {}
+        this.fetchImpl = o.fetchImpl || null
+        this.ttlMs = o.ttlMs || 60000
+        this.now = o.now || Date.now
+        this.cache = new Map()
+      }
+      async probe(url) {
+        const hit = this.cache.get(url)
+        if (hit && (this.now() - hit.at) <= this.ttlMs) return hit.ok
+        let ok = false
+        try {
+          const doFetch = this.fetchImpl || (typeof fetch === 'function' ? fetch : null)
+          if (doFetch) {
+            const res = await doFetch(url, { method: 'GET' })
+            ok = !!res && res.ok === true
+          }
+        } catch {
+          ok = false // network error / plugin absent: probe is a soft signal
+        }
+        this.cache.set(url, { ok, at: this.now() })
+        return ok
+      }
+    }
+
+    var __probeCache = new ProbeCache()
 
     // --- sessions service adoption ----------------------------------------------
 
@@ -485,6 +562,57 @@ window.__ModuleLoader__.load({
       }, 300)
     }
 
+    async function runCopySessionId() {
+      const sessionId = currentSessionId()
+      if (!sessionId) { toast(__t('toast.noSession'), { kind: 'warn' }); return }
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(sessionId)
+        } else {
+          // Fallback for non-secure contexts: hidden textarea + execCommand.
+          const ta = document.createElement('textarea')
+          ta.value = sessionId
+          ta.style.cssText = 'position:fixed;opacity:0'
+          document.body.appendChild(ta)
+          ta.select()
+          document.execCommand('copy')
+          ta.remove()
+        }
+        toast(__t('toast.copied'), { kind: 'ok' })
+      } catch (e) {
+        toast(__t('toast.copyFail') + (e && e.message ? e.message : e), { kind: 'error' })
+      }
+    }
+
+    // Probe-gated registrations (fail-soft): a command only appears when the
+    // plugin it depends on answers its health/route probe. 协作矩阵见 README。
+    function registerProbeGatedCommands() {
+      // dsh-session-search (roadmap W2): full-text search lives in the devkit
+      // '#' palette mode; deep-link to its own panel lands once the discovery
+      // scheme is settled.
+      __probeCache.probe('/api/session-search/health').then((ok) => {
+        if (!ok) return
+        registerCommand({
+          id: 'devkit.searchHistory',
+          title: __t('cmd.searchHistory'),
+          keywords: ['搜索', '历史', '全文', 'search', 'history'],
+          run: () => window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { mode: 'palette', preset: '#' } })),
+        })
+        notifyRegistry()
+      })
+      // session-lazy-view: /lazyview GET-only route (pm-a P0 discoverability).
+      __probeCache.probe('/lazyview').then((ok) => {
+        if (!ok) return
+        registerCommand({
+          id: 'devkit.lazyview',
+          title: __t('cmd.lazyview'),
+          keywords: ['lazy', 'view', 'timeline', '时间线', '查看器'],
+          run: () => { try { window.open('/lazyview', '_blank') } catch { window.location.assign('/lazyview') } },
+        })
+        notifyRegistry()
+      })
+    }
+
     function registerBuiltinCommands() {
       const defs = [
         { id: 'devkit.session.switch', run: () => openOverlay('sessions'), keywords: ['会话', '切换', 'session', 'switch'] },
@@ -493,6 +621,7 @@ window.__ModuleLoader__.load({
         { id: 'devkit.session.exportMarkdown', run: runExportMarkdown, keywords: ['导出', 'markdown', '会话', 'export'] },
         { id: 'devkit.messageOps', run: runMessageOps, keywords: ['消息', '回滚', '分支', 'message', 'ops'] },
         { id: 'devkit.websearch.settings', run: runWebsearchSettings, keywords: ['websearch', '设置', '搜索', 'settings'] },
+        { id: 'devkit.session.copyId', run: runCopySessionId, keywords: ['复制', '会话', 'id', 'copy'] },
         { id: 'devkit.devinfo', run: () => openOverlay('devinfo'), keywords: ['开发者', '信息', 'dev', 'info', '版本'] },
         { id: 'devkit.shortcuts', run: () => openOverlay('shortcuts'), shortcut: 'Ctrl+K Ctrl+S', keywords: ['快捷键', '键位', 'shortcuts', 'keys'] },
       ]
@@ -630,7 +759,7 @@ window.__ModuleLoader__.load({
           // Record the focus origin so close() can restore it (fe-ui D1).
           try { prevFocusRef.current = document.activeElement } catch { /* no DOM */ }
           setMode(m === 'palette' && (e.detail.sessionPick) ? 'sessions' : m)
-          setQuery('')
+          setQuery(e.detail && e.detail.preset ? String(e.detail.preset) : '')
           setSelected(0)
           setBusy(false)
         }
@@ -689,24 +818,104 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKey, true)
       }, [mode, close])
 
-      // 'sessions' mode renders the recent-session list; everything else is
-      // the command palette.
+      // --- palette internals (mode prefixes, MRU, session search) ---------------
+      // VS Code paradigm (roadmap W1): first char routes the palette —
+      //   '>' commands · '#' session search · '@' plugin groups · none = mixed
+      const isPalette = mode === 'palette'
+      const pal = parsePaletteQuery(query)
+      const palKind = isPalette ? pal.mode : null // commands | sessions | plugins | mixed
       const isSessions = mode === 'sessions'
-      const sessions = useMemo(() => (isSessions ? listRecentSessions() : []), [isSessions, mode, registryRev])
-      const filteredSessions = useMemo(() => {
-        if (!isSessions) return []
-        return matchCommands(sessions.map((s) => ({ id: s.id, title: s.title, keywords: [] })), query, 'zh')
+
+      // MRU (recently-run commands), persisted in localStorage.
+      const [mru, setMru] = useState(() => {
+        try { return JSON.parse(window.localStorage.getItem('dsh-devkit-mru') || '[]') } catch { return [] }
+      })
+      const recordMru = useCallback((id) => {
+        setMru((prev) => {
+          const next = pushMru(prev, id)
+          try { window.localStorage.setItem('dsh-devkit-mru', JSON.stringify(next)) } catch { /* storage may be unavailable */ }
+          return next
+        })
+      }, [])
+
+      const sessions = useMemo(() => (isSessions || isPalette ? listRecentSessions() : []), [isSessions, isPalette, mode, registryRev])
+
+      // Local title match over the sessions store (also the '#' fallback when
+      // dsh-session-search is absent).
+      const localSessions = useMemo(() => {
+        if (!isSessions && !(isPalette && (palKind === 'sessions' || palKind === 'mixed'))) return []
+        return matchCommands(sessions.map((s) => ({ id: s.id, title: s.title, keywords: [] })), isSessions ? query : pal.rest, 'zh')
           .map((m) => sessions.find((s) => s.id === m.id))
-      }, [isSessions, sessions, query])
+      }, [isSessions, isPalette, palKind, pal.rest, sessions, query])
+
+      // Full-text results via dsh-session-search (probe-gated, debounced).
+      const [ftResults, setFtResults] = useState(null) // null = not using / unavailable
+      useEffect(() => {
+        if (!isPalette || palKind !== 'sessions' || pal.rest.trim().length < 2) {
+          setFtResults(null)
+          return undefined
+        }
+        let dead = false
+        const timer = setTimeout(() => {
+          __probeCache.probe('/api/session-search/health').then((ok) => {
+            if (!ok || dead) return
+            fetch('/api/session-search/search?q=' + encodeURIComponent(pal.rest.trim()))
+              .then((r) => (r.ok ? r.json() : null))
+              .then((data) => {
+                if (dead) return
+                const rows = data && Array.isArray(data.results) ? data.results
+                  : data && Array.isArray(data.hits) ? data.hits
+                  : Array.isArray(data) ? data : []
+                setFtResults(rows.map((r) => ({
+                  id: String(r.sessionId || r.session || ''),
+                  title: r.title || r.sessionTitle || String(r.sessionId || r.session || ''),
+                  seq: typeof r.seq === 'number' ? r.seq : null,
+                  snippet: r.snippet || r.preview || r.context || '',
+                })).filter((r) => r.id))
+              })
+              .catch(() => { if (!dead) setFtResults(null) })
+          })
+        }, 250)
+        return () => { dead = true; clearTimeout(timer) }
+      }, [isPalette, palKind, pal.rest])
 
       const commands = useMemo(() => {
-        if (isSessions || mode === null) return []
-        return matchCommands(__commands, query, localeFallbackLang())
+        if (mode === null || isSessions) return []
+        if (isPalette && palKind === 'sessions') return []
+        const matched = matchCommands(__commands, isPalette ? pal.rest : query, localeFallbackLang())
+        if (isPalette && palKind === 'plugins') {
+          // '@': group by registration source (id prefix), stable within group.
+          return matched.slice().sort((a, b) => {
+            const ga = a.id.split('.')[0]
+            const gb = b.id.split('.')[0]
+            return ga === gb ? 0 : (ga < gb ? -1 : 1)
+          })
+        }
+        // commands + mixed: MRU first.
+        return applyMruRank(matched, mru)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [isSessions, mode, query, registryRev])
+      }, [mode, isSessions, isPalette, palKind, pal.rest, query, registryRev, mru])
 
-      const items = isSessions ? filteredSessions : commands
-      useEffect(() => { if (selected >= items.length) setSelected(items.length ? 0 : 0) }, [items.length]) // eslint-disable-line react-hooks/exhaustive-deps
+      // Unified selectable items. Command items keep {kind:'command'}; session
+      // items {kind:'session'} (local store or full-text hit).
+      const items = useMemo(() => {
+        if (mode === null) return []
+        if (isSessions) return localSessions.map((s) => ({ kind: 'session', ...s }))
+        if (!isPalette) return commands.map((c) => ({ kind: 'command', ...c }))
+        if (palKind === 'sessions') {
+          if (ftResults && ftResults.length) return ftResults.map((r) => ({ kind: 'ft', ...r }))
+          return localSessions.map((s) => ({ kind: 'session', ...s }))
+        }
+        if (palKind === 'mixed') {
+          return [
+            ...commands.map((c) => ({ kind: 'command', ...c })),
+            ...localSessions.map((s) => ({ kind: 'session', ...s })),
+          ]
+        }
+        return commands.map((c) => ({ kind: 'command', ...c }))
+      }, [mode, isSessions, isPalette, palKind, commands, localSessions, ftResults])
+
+      useEffect(() => { if (selected >= items.length) setSelected(0) }, [items.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
       useEffect(() => {
         if (!listRef.current) return
@@ -716,15 +925,19 @@ window.__ModuleLoader__.load({
 
       const commit = useCallback((item) => {
         if (!item) return
-        if (isSessions) {
+        if (item.kind === 'session' || item.kind === 'ft') {
           close()
-          openSession(item.id)
+          if (!openSession(item.id)) toast(__t('toast.openFail'), { kind: 'warn' })
+          if (item.kind === 'ft' && item.seq != null) {
+            toast('#' + item.seq + (item.snippet ? ' · ' + item.snippet : ''), { kind: 'info' })
+          }
           return
         }
         close()
+        recordMru(item.id)
         try { Promise.resolve(item.run()).catch((e) => toast(String(e && e.message ? e.message : e), { kind: 'error' })) }
         catch (e) { toast(String(e && e.message ? e.message : e), { kind: 'error' }) }
-      }, [isSessions, close])
+      }, [close, recordMru])
 
       const onInputKeyDown = useCallback((e) => {
         if (e.key === 'ArrowDown') {
@@ -790,9 +1003,13 @@ window.__ModuleLoader__.load({
           ]),
         ])
       } else {
-        // palette + sessions share the input/list layout
-        const placeholder = isSessions ? t('palette.sessionsPlaceholder') : t('palette.placeholder')
-        const emptyLabel = isSessions ? t('sessions.empty') : t('palette.empty')
+        // palette (+ prefix modes) and sessions share the input/list layout
+        const placeholder = isSessions ? t('palette.sessionsPlaceholder')
+          : palKind === 'sessions' ? t('palette.sessionsSearchPlaceholder')
+          : t('palette.placeholder')
+        const emptyLabel = isSessions ? t('sessions.empty')
+          : palKind === 'sessions' && ftResults === null ? t('sessions.localOnly')
+          : t('palette.empty')
         body = [
           React.createElement('input', {
             key: 'input',
@@ -816,11 +1033,21 @@ window.__ModuleLoader__.load({
                   React.createElement('span', { key: 'e' }, emptyLabel),
                 ])
               : items.map((item, i) => {
-                  const isCmd = !isSessions
+                  const isCmd = item.kind === 'command'
                   const label = isCmd ? (item.foreign ? item.title : commandTitleZh(item)) : item.title
-                  const badge = isSessions
-                    ? (item.id === currentSessionId() ? t('sessions.current') : (item.running ? t('sessions.running') : null))
-                    : (item.foreign ? 'plugin' : null)
+                  let badge = null
+                  if (item.kind === 'ft') {
+                    badge = t('badge.fullText')
+                  } else if (item.kind === 'session') {
+                    badge = item.id === currentSessionId() ? t('sessions.current') : (item.running ? t('sessions.running') : null)
+                  } else if (!isCmd) {
+                    badge = null
+                  } else if (mru.includes(item.id)) {
+                    badge = t('badge.recent')
+                  } else if (item.foreign) {
+                    badge = 'plugin'
+                  }
+                  if (palKind === 'plugins' && isCmd) badge = item.id.split('.')[0]
                   return React.createElement('div', {
                     key: (item.id || i) + ':' + i,
                     style: {
@@ -956,6 +1183,7 @@ window.__ModuleLoader__.load({
       }
 
       registerBuiltinCommands()
+      registerProbeGatedCommands()
       installKeyboard()
 
       ctx.slots.inject(OVERLAY_SLOT, () => ctx.slots.register({

@@ -20,7 +20,7 @@
 // thin copies of matchCommands / isTextInputTarget / chord handling so the
 // shipped bundle stays self-contained. This file is the tested reference.
 
-export const VERSION = '0.1.0'
+export const VERSION = '0.2.0'
 
 // Static metadata for the built-in commands. `run` lives only in the client.
 export const BUILTIN_COMMANDS = [
@@ -71,6 +71,30 @@ export const BUILTIN_COMMANDS = [
     shortcut: null,
     keywordsZh: ['websearch', '设置', '搜索', 'settings'],
     keywordsEn: ['websearch', 'settings', 'search'],
+  },
+  {
+    id: 'devkit.session.copyId',
+    titleZh: '复制当前会话 ID',
+    titleEn: 'Copy current session ID',
+    shortcut: null,
+    keywordsZh: ['复制', '会话', 'id', 'copy'],
+    keywordsEn: ['copy', 'session', 'id'],
+  },
+  {
+    id: 'devkit.searchHistory',
+    titleZh: '搜索会话历史…（需 dsh-session-search）',
+    titleEn: 'Search session history… (needs dsh-session-search)',
+    shortcut: null,
+    keywordsZh: ['搜索', '历史', '全文', 'search', 'history'],
+    keywordsEn: ['search', 'history', 'full-text'],
+  },
+  {
+    id: 'devkit.lazyview',
+    titleZh: '打开 lazy-view 面板…（需 session-lazy-view）',
+    titleEn: 'Open lazy-view panel… (needs session-lazy-view)',
+    shortcut: null,
+    keywordsZh: ['lazy', 'view', 'timeline', '时间线', '查看器'],
+    keywordsEn: ['lazy', 'view', 'timeline'],
   },
   {
     id: 'devkit.devinfo',
@@ -172,5 +196,73 @@ export class ChordResolver {
     // Any other key disarms silently (the palette is already open).
     this.armedAt = null
     return { action: null, consume: false }
+  }
+}
+
+// --- palette mode prefixes (VS Code paradigm) --------------------------------
+//   '>rest'  command mode
+//   '#rest'  session search mode (title match locally; full-text via
+//            dsh-session-search when its health endpoint answers)
+//   '@rest'  plugin-group mode (commands grouped by registration source)
+//   'rest'   mixed mode (commands + session titles, MRU first)
+export function parsePaletteQuery(query) {
+  const q = String(query || '')
+  const first = q.charAt(0)
+  if (first === '>') return { mode: 'commands', rest: q.slice(1) }
+  if (first === '#') return { mode: 'sessions', rest: q.slice(1) }
+  if (first === '@') return { mode: 'plugins', rest: q.slice(1) }
+  return { mode: 'mixed', rest: q }
+}
+
+// --- MRU (most recently used) --------------------------------------------------
+// Pure list ops; the browser client persists via localStorage under
+// 'dsh-devkit-mru' (cap 20, ring: re-record moves to front, oldest drops).
+
+export const MRU_KEY = 'dsh-devkit-mru'
+export const MRU_CAP = 20
+
+// Returns a NEW list: id moved to front, deduped, capped.
+export function pushMru(list, id, cap = MRU_CAP) {
+  const prev = Array.isArray(list) ? list.filter((x) => x !== id) : []
+  return [id, ...prev].slice(0, cap)
+}
+
+// Stable-rank items by MRU position (recorded earlier = higher); items never
+// used keep their relative order after all MRU hits.
+export function applyMruRank(items, mru) {
+  const rank = new Map((mru || []).map((id, i) => [id, i]))
+  return items
+    .map((item, i) => ({ item, i, r: rank.has(item.id) ? rank.get(item.id) : Number.MAX_SAFE_INTEGER }))
+    .sort((a, b) => (a.r === b.r ? a.i - b.i : a.r - b.r))
+    .map((x) => x.item)
+}
+
+// --- availability probe ---------------------------------------------------------
+// Injectable-fetch probe with per-URL cache, so command registration can be
+// conditional on other plugins being present (session-search, lazy-view)
+// and stays unit-testable without a network.
+export class ProbeCache {
+  constructor({ fetchImpl = null, ttlMs = 60000, now = Date.now } = {}) {
+    this.fetchImpl = fetchImpl
+    this.ttlMs = ttlMs
+    this.now = now
+    this.cache = new Map() // url -> {ok, at}
+  }
+
+  async probe(url) {
+    const hit = this.cache.get(url)
+    if (hit && (this.now() - hit.at) <= this.ttlMs) return hit.ok
+    let ok = false
+    try {
+      const doFetch = this.fetchImpl || (typeof fetch === 'function' ? fetch : null)
+      if (doFetch) {
+        const res = await doFetch(url, { method: 'GET' })
+        ok = !!res && res.ok === true
+      }
+    } catch {
+      ok = false // network error / plugin absent: probe is a soft signal
+    }
+    this.cache.set(url, { ok, at: this.now() })
+    return ok
   }
 }

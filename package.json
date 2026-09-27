@@ -1,6 +1,6 @@
 {
   "name": "@240xu/dsh-devkit",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "DSH web plugin: VS Code-grade developer experience without touching any sidebar. Command palette (Ctrl+K / Ctrl+Shift+P) with an open registerCommand contribution point for other plugins, chord keyboard layer (Ctrl+K Ctrl+S), toast notifications, dev info overlay and health/commands HTTP endpoints. Zero npm dependencies.",
   "type": "module",
   "license": "MIT",

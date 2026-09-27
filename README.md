@@ -118,3 +118,33 @@ MIT
 - 【N1·P1】confirmDelete 弹层 Tab 在「删除/取消」两按钮间首尾循环，与全局焦点陷阱一致。
 - 【N2·P3】client VERSION 更新为 0.1.2，注明 classic-script 无法 import package.json、以字面量+同步注释为单一来源。
 - 【D2】面板输入框补 `role="combobox" aria-expanded aria-controls="devkit-list" aria-activedescendant`，列表项补 `id="devkit-opt-N"`，读屏可朗读「第 N 项已选中」。
+
+## 命令面板模式前缀（0.2.0，VS Code 范式）
+
+| 输入前缀 | 模式 | 行为 |
+| --- | --- | --- |
+| 无前缀 | 混合模式 | 命令 + 会话标题同时过滤，MRU（最近使用）优先 |
+| `>` | 命令模式 | 只搜命令（现状默认行为的显式形式） |
+| `#` | 会话搜索 | 标题匹配（sessions 服务）+ 全文搜索（需 dsh-session-search，探测 `/api/session-search/health` 通过后启用）；全文结果点击 = 打开会话并 toast 命中 `#seq · 上下文摘要` |
+| `@` | 插件分组 | 命令按注册来源（id 前缀）分组排序，badge 显示来源 |
+
+### MRU
+
+最近执行的 20 条命令记录在 `localStorage`（key `dsh-devkit-mru`，环形上限 20，去重置顶），面板中排前并带「最近」标记；刷新后仍生效。
+
+### 0.2.0 新增内置命令
+
+- **复制当前会话 ID**（始终可用；非安全上下文回退 execCommand）
+- **搜索会话历史…**（仅当 `GET /api/session-search/health` 探测通过才注册；进入 `#` 全文搜索模式；session-search 面板深链待 W2 发现方案敲定）
+- **打开 lazy-view 面板…**（仅当 `GET /lazyview` 探测 200 才注册；新标签页打开）——补上 pm-a 评审指出的 lazy-view「无入口」P0 缺口
+
+### 协作矩阵（哪些命令依赖哪些插件存在）
+
+| 命令 / 能力 | 依赖 | 探测方式 | 缺失时行为 |
+| --- | --- | --- | --- |
+| 删除当前会话 | @huanlin/dsh-plugin-session-delete | 调用时 404 | toast 报错 |
+| 导出会话 Markdown / 消息操作面板 | @240xu/dsh-message-ops | 调用时状态码 / 事件无响应 | toast 提示不可用 |
+| Websearch 设置 | @240xu/dsh-websearch | `__dshWebsearchSettingsReady` 标志或 300ms ack | toast「暂不可用」 |
+| 搜索会话历史 / `#` 全文搜索 | dsh-session-search（W2 新插件） | `GET /api/session-search/health` | 命令不注册；`#` 降级为标题匹配 |
+| 打开 lazy-view 面板 | session-lazy-view | `GET /lazyview` → 200 | 命令不注册 |
+| 切换/新建会话、会话标题搜索、复制 ID | 宿主 sessions 服务 | ctx.inject 延迟注入 | toast 提示 |
