@@ -21,6 +21,10 @@
 // Bundle format (client-modules protocol): classic script registering a
 // factory via window.__ModuleLoader__.load({ id, factory }); plain
 // React.createElement, --dsw-* theme tokens only.
+// DUAL-SOURCE NOTICE: matchCommands / isTextInputTarget / ChordResolver are
+// thin copies of src/core.js (the tested reference). 修改必须同步两处：
+// test/consistency.test.js hashes both copies and fails on drift.
+
 window.__ModuleLoader__.load({
   id: '@240xu/dsh-devkit',
   factory: (require) => {
@@ -35,8 +39,6 @@ window.__ModuleLoader__.load({
     const HEADER_ID = 'devkit-palette-button'
     const NS = 'dsh-devkit'
     const OPEN_EVENT = 'dsh-devkit:open' // detail: { mode: 'palette'|'sessions'|'shortcuts'|'devinfo' }
-    const CHORD_WINDOW_MS = 1500
-
     // --- locale -----------------------------------------------------------------
 
     const zhDict = {
@@ -70,6 +72,13 @@ window.__ModuleLoader__.load({
       'toast.exportFail': '导出失败（message-ops 插件不可用或会话日志不存在）',
       'toast.exporting': '正在导出…',
       'toast.websearch': '已请求打开 Websearch 设置；若未弹出，请从宿主设置面板打开',
+      'toast.websearchUnavailable': 'Websearch 设置暂不可用（插件未安装或无响应）',
+      'confirmDelete.title': '删除当前会话',
+      'confirmDelete.desc': '将永久删除该会话及其全部对话记录，此操作不可恢复。',
+      'confirmDelete.cancel': '取消',
+      'confirmDelete.confirm': '删除',
+      'confirmDelete.busy': '正在删除…',
+      'confirmDelete.runningWarn': '⚠ 会话正在运行，删除将立即停止其任务',
     }
 
     const enDict = {
@@ -103,6 +112,13 @@ window.__ModuleLoader__.load({
       'toast.exportFail': 'Export failed (message-ops unavailable or log missing)',
       'toast.exporting': 'Exporting…',
       'toast.websearch': 'Requested websearch settings; open it from host settings if nothing popped up',
+      'toast.websearchUnavailable': 'Websearch settings unavailable (plugin missing or not responding)',
+      'confirmDelete.title': 'Delete current session',
+      'confirmDelete.desc': 'This permanently deletes the session and all of its conversation records. This cannot be undone.',
+      'confirmDelete.cancel': 'Cancel',
+      'confirmDelete.confirm': 'Delete',
+      'confirmDelete.busy': 'Deleting…',
+      'confirmDelete.runningWarn': '⚠ Session is running; deleting will stop its task',
     }
 
     var __locale = null
@@ -154,7 +170,7 @@ window.__ModuleLoader__.load({
       ].map((s) => s.toLowerCase())
     }
 
-    function matchCommands(commands, query, lang) {
+    function matchCommands(commands, query, lang = 'zh') {
       const q = String(query || '').trim().toLowerCase()
       if (!q) return commands.slice()
       const tokens = q.split(/\s+/)
@@ -165,12 +181,15 @@ window.__ModuleLoader__.load({
     }
 
     class ChordResolver {
-      constructor() { this.armedAt = null }
+      constructor({ chordWindowMs = 1500 } = {}) {
+        this.chordWindowMs = chordWindowMs
+        this.armedAt = null
+      }
       feed(ev, now) {
         const ctrl = ev.ctrlKey === true
         const shift = ev.shiftKey === true
         const key = String(ev.key || '').toLowerCase()
-        const armed = this.armedAt !== null && (now - this.armedAt) <= CHORD_WINDOW_MS
+        const armed = this.armedAt !== null && (now - this.armedAt) <= this.chordWindowMs
         if (!armed) this.armedAt = null
         if (ctrl && !shift && key === 'k') {
           this.armedAt = now
@@ -229,6 +248,10 @@ window.__ModuleLoader__.load({
         '@keyframes dshDevkitToastOut{from{opacity:1}to{opacity:0;transform:translateY(4px)}}',
         '[data-devkit-toast]{animation:dshDevkitToastIn .18s ease-out}',
         '[data-devkit-toast].dsh-devkit-toast-out{animation:dshDevkitToastOut .22s ease-in forwards}',
+        '@media (prefers-reduced-motion: reduce){',
+        '  [data-devkit-toast]{animation:none}',
+        '  [data-devkit-toast].dsh-devkit-toast-out{animation:none}',
+        '}',
       ].join('\n')
       document.head.appendChild(tag)
     }
@@ -252,6 +275,8 @@ window.__ModuleLoader__.load({
           'display:flex', 'flex-direction:column', 'gap:8px', 'align-items:flex-end',
           'pointer-events:none', 'max-width:min(420px,80vw)',
         ].join(';')
+        host.setAttribute('role', 'status')
+        host.setAttribute('aria-live', 'polite')
         document.body.appendChild(host)
       }
       const o = opts || {}
@@ -309,7 +334,14 @@ window.__ModuleLoader__.load({
         throw new Error('[dsh-devkit] registerCommand requires { id, title, run }')
       }
       if (__commandIds.has(id)) {
-        throw new Error('[dsh-devkit] command id already registered: ' + id)
+        // Idempotent dedup (suite consensus): re-registering the same id with
+        // the same run (double plugin load, suite + standalone coexistence)
+        // is a no-op returning the original unregister. A conflicting run is
+        // warned and ignored — never throw, the palette must stay stable.
+        const existing = __commands.find((c) => c.id === id)
+        if (existing && existing.run === spec.run) return existing.unregister
+        console.warn('[dsh-devkit] duplicate command id ignored: ' + id)
+        return existing ? existing.unregister : () => {}
       }
       const record = {
         id,
@@ -323,12 +355,13 @@ window.__ModuleLoader__.load({
       }
       __commands.push(record)
       __commandIds.add(id)
-      notifyRegistry()
-      return function unregister() {
+      record.unregister = function unregister() {
         __commands = __commands.filter((c) => c !== record)
         __commandIds.delete(id)
         notifyRegistry()
       }
+      notifyRegistry()
+      return record.unregister
     }
 
     function commandTitleZh(cmd) {
@@ -367,7 +400,9 @@ window.__ModuleLoader__.load({
       toast(__t('toast.newUnsupported'), { kind: 'warn' })
     }
 
-    async function runDeleteCurrent() {
+    // Destructive path, reached only through the confirm overlay
+    // (devkit.session.delete opens mode 'confirmDelete' first).
+    async function deleteCurrentSession() {
       const sessionId = currentSessionId()
       if (!sessionId) { toast(__t('toast.noSession'), { kind: 'warn' }); return }
       try {
@@ -427,16 +462,31 @@ window.__ModuleLoader__.load({
       window.dispatchEvent(new CustomEvent('dsh-message-ops:open', { detail: { sessionId } }))
     }
 
+    // Dead-command guard (pm-a P0): websearch side is adding an
+    // 'dsh-websearch:open-settings:ack' listener + a
+    // window.__dshWebsearchSettingsReady readiness flag. We prefer the flag;
+    // without it we still dispatch but verify an ack within 300ms and warn
+    // when nobody answered, so the command never silently does nothing.
     function runWebsearchSettings() {
+      let acked = false
+      const onAck = () => { acked = true }
+      window.addEventListener('dsh-websearch:open-settings:ack', onAck, { once: true })
       window.dispatchEvent(new CustomEvent('dsh-websearch:open-settings'))
-      toast(__t('toast.websearch'), { kind: 'info' })
+      if (window.__dshWebsearchSettingsReady === true) {
+        toast(__t('toast.websearch'), { kind: 'info' })
+        return
+      }
+      setTimeout(() => {
+        window.removeEventListener('dsh-websearch:open-settings:ack', onAck)
+        if (!acked) toast(__t('toast.websearchUnavailable'), { kind: 'warn' })
+      }, 300)
     }
 
     function registerBuiltinCommands() {
       const defs = [
         { id: 'devkit.session.switch', run: () => openOverlay('sessions'), keywords: ['会话', '切换', 'session', 'switch'] },
         { id: 'devkit.session.new', run: runNewSession, keywords: ['会话', '新建', 'new', 'session'] },
-        { id: 'devkit.session.delete', run: runDeleteCurrent, keywords: ['会话', '删除', 'delete', 'session'] },
+        { id: 'devkit.session.delete', run: () => openOverlay('confirmDelete'), keywords: ['会话', '删除', 'delete', 'session'] },
         { id: 'devkit.session.exportMarkdown', run: runExportMarkdown, keywords: ['导出', 'markdown', '会话', 'export'] },
         { id: 'devkit.messageOps', run: runMessageOps, keywords: ['消息', '回滚', '分支', 'message', 'ops'] },
         { id: 'devkit.websearch.settings', run: runWebsearchSettings, keywords: ['websearch', '设置', '搜索', 'settings'] },
@@ -491,8 +541,10 @@ window.__ModuleLoader__.load({
 
     const backdropStyle = {
       position: 'fixed', inset: 0, zIndex: 2147482000,
-      background: 'rgba(0,0,0,.32)',
-      backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+      // fe-ui D3: solid scrim instead of a second backdrop-filter — two
+      // fullscreen blur layers cost a frame-drop on low-end Android; the
+      // (small) panel keeps its blur.
+      background: 'rgba(0,0,0,.45)',
     }
 
     const panelStyle = {
@@ -555,6 +607,7 @@ window.__ModuleLoader__.load({
       const [selected, setSelected] = useState(0)
       const [registryRev, setRegistryRev] = useState(0)
       const inputRef = useRef(null)
+      const confirmBtnRef = useRef(null)
       const listRef = useRef(null)
 
       useEffect(() => {
@@ -564,12 +617,18 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      const prevFocusRef = useRef(null)
+      const [busy, setBusy] = useState(false)
+
       useEffect(() => {
         const onOpen = (e) => {
           const m = e && e.detail && e.detail.mode ? e.detail.mode : 'palette'
+          // Record the focus origin so close() can restore it (fe-ui D1).
+          try { prevFocusRef.current = document.activeElement } catch { /* no DOM */ }
           setMode(m === 'palette' && (e.detail.sessionPick) ? 'sessions' : m)
           setQuery('')
           setSelected(0)
+          setBusy(false)
         }
         window.addEventListener(OPEN_EVENT, onOpen)
         return () => window.removeEventListener(OPEN_EVENT, onOpen)
@@ -579,11 +638,24 @@ window.__ModuleLoader__.load({
         __overlayOpen = mode !== null
         if (mode && inputRef.current) {
           try { inputRef.current.focus() } catch { /* best effort */ }
+        } else if (mode === 'confirmDelete' && confirmBtnRef.current) {
+          // Focus lands on the destructive button so the trap has an anchor.
+          try { confirmBtnRef.current.focus() } catch { /* best effort */ }
         }
         return () => { __overlayOpen = false }
       }, [mode])
 
-      const close = useCallback(() => setMode(null), [])
+      // fe-ui D1: restoring focus on close matters as much as trapping it —
+      // without this the keyboard user lands on <body> after Esc.
+      const close = useCallback(() => {
+        setMode(null)
+        setBusy(false)
+        const pf = prevFocusRef.current
+        prevFocusRef.current = null
+        if (pf && typeof pf.focus === 'function') {
+          try { pf.focus() } catch { /* element may be gone */ }
+        }
+      }, [])
 
       useEffect(() => {
         if (mode === null) return undefined
@@ -592,6 +664,16 @@ window.__ModuleLoader__.load({
             e.preventDefault()
             e.stopPropagation()
             close()
+            return
+          }
+          // fe-ui D1 focus trap: the panel currently has a single focusable
+          // element (the palette input), so Tab is simply bounced back —
+          // focus can never escape into the masked background page. If the
+          // panel ever grows multiple focusables, replace this with a
+          // first/last element wrap.
+          if (e.key === 'Tab') {
+            e.preventDefault()
+            e.stopPropagation()
           }
         }
         window.addEventListener('keydown', onKey, true)
@@ -653,6 +735,7 @@ window.__ModuleLoader__.load({
       const title = isSessions ? t('sessions.title')
         : mode === 'shortcuts' ? t('shortcuts.title')
         : mode === 'devinfo' ? t('devinfo.title')
+        : mode === 'confirmDelete' ? t('confirmDelete.title')
         : t('header.title')
 
       let body = null
@@ -671,6 +754,32 @@ window.__ModuleLoader__.load({
         ])
       } else if (mode === 'devinfo') {
         body = React.createElement(DevInfo, { key: 'devinfo', t, close })
+      } else if (mode === 'confirmDelete') {
+        // fe-ui review 修复 4：破坏性命令先过确认弹层（风险确认模式）。
+        const snap = sessionsSnapshot()
+        const cur = snap && snap.current ? snap.current : null
+        const curInfo = snap && snap.byId && snap.byId[cur] ? (snap.byId[cur].title || cur) : cur
+        body = React.createElement('div', { key: 'confirm', style: { ...listStyle, padding: '0 16px 16px' } }, [
+          cur && snap && snap.byId && snap.byId[cur] && snap.byId[cur].running
+            ? React.createElement('div', { key: 'warn', style: { color: 'var(--dsw-alias-state-warn-primary,#f5a524)', fontSize: 13, lineHeight: '20px', margin: '4px 0 8px' } }, t('confirmDelete.runningWarn'))
+            : null,
+          React.createElement('div', { key: 'd', style: { fontSize: 13, lineHeight: '20px' } }, t('confirmDelete.desc')),
+          cur ? React.createElement('div', { key: 'id', style: { fontSize: 12, lineHeight: '18px', margin: '8px 0 14px', color: 'var(--dsw-alias-label-secondary,#8a8a8e)', wordBreak: 'break-all' } }, curInfo + ' · ' + cur) : null,
+          React.createElement('div', { key: 'btns', style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } }, [
+            React.createElement('button', {
+              key: 'c', type: 'button', disabled: busy, onClick: close,
+              style: { padding: '8px 18px', minHeight: 36, borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.4))', background: 'transparent', color: 'inherit', fontSize: 13, cursor: busy ? 'default' : 'pointer' },
+            }, t('confirmDelete.cancel')),
+            React.createElement('button', {
+              key: 'ok', type: 'button', ref: confirmBtnRef, disabled: busy || !cur,
+              onClick: () => {
+                setBusy(true)
+                Promise.resolve(deleteCurrentSession()).then(() => { close() })
+              },
+              style: { padding: '8px 18px', minHeight: 36, borderRadius: 8, border: '1px solid var(--dsw-alias-state-error-primary, #e5484d)', background: 'var(--dsw-alias-state-error-primary, #e5484d)', color: '#fff', fontSize: 13, cursor: busy ? 'default' : 'pointer', opacity: busy || !cur ? 0.6 : 1 },
+            }, busy ? t('confirmDelete.busy') : t('confirmDelete.confirm')),
+          ]),
+        ])
       } else {
         // palette + sessions share the input/list layout
         const placeholder = isSessions ? t('palette.sessionsPlaceholder') : t('palette.placeholder')
@@ -722,7 +831,7 @@ window.__ModuleLoader__.load({
         style: backdropStyle,
         onMouseDown: (e) => { if (e.target === e.currentTarget) close() },
       },
-      React.createElement('div', { style: panelStyle, role: 'dialog', 'aria-label': title }, [
+      React.createElement('div', { style: panelStyle, role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, [
         React.createElement('div', {
           key: 'title',
           style: {

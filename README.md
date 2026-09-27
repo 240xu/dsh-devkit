@@ -100,3 +100,15 @@ npm test          # node --test，26 个用例：命令过滤/和弦状态机/�
 ## License
 
 MIT
+
+## Changelog
+
+### 0.1.1（评审修复第一轮）
+
+- 【P0】焦点陷阱：面板打开时 Tab 不再穿透到背景页；关闭时焦点还原到打开前的元素；dialog 补 `aria-modal="true"`（fe-ui D1/D2）。
+- 【P0】死命令防护：`devkit.websearch.settings` 改为探测式派发——优先读 `window.__dshWebsearchSettingsReady` 就绪标志，否则监听 `dsh-websearch:open-settings:ack` 应答，300ms 无应答 toast「Websearch 设置暂不可用」（pm-a P0）。
+- 【P1】backdrop 去掉第二层 `backdrop-filter`，改纯色遮罩 `rgba(0,0,0,.45)`，低端安卓不再双全屏模糊合成（fe-ui D3）。
+- 【P1】「删除当前会话」加确认弹层（会话名+id+运行中警告+危险按钮，Esc/取消可退），不再一键即删。
+- 【P1】`registerCommand` 同 id 幂等去重：同 run 返回原注销函数，冲突 run `console.warn` 并忽略，不再 throw（suite 共识修订）。
+- 【P1】Toast 容器补 `role="status" aria-live="polite"`；toast 动画加 `prefers-reduced-motion` 关断（fe-ui D4/D5）。
+- core.js / client.js 双源薄拷贝加互指头注释，新增 `test/consistency.test.js` 关键函数哈希一致性快照测试。

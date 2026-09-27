@@ -1,5 +1,10 @@
 // dsh-devkit: shared pure logic (ESM).
 //
+// DUAL-SOURCE NOTICE: src/client.js (classic-script bundle) carries thin
+// copies of matchCommands / isTextInputTarget / ChordResolver so the shipped
+// bundle stays self-contained. 修改必须同步两处：test/consistency.test.js
+// hashes both copies and fails on drift. Edit core.js AND client.js together.
+//
 // Everything here is dependency-free and runs in plain node --test:
 //   - BUILTIN_COMMANDS      static command metadata (also served by
 //                           GET /api/devkit/commands)
