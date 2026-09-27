@@ -1,0 +1,102 @@
+# @240xu/dsh-devkit
+
+> 把 VS Code 的核心开发者体验移植进 DSH web 端：**命令面板 + 快捷键层 + Toast 通知 + 开发者信息**，全部 overlay 化，**侧边栏零改动**。
+
+![命令面板截图占位](docs/screenshot-palette.png)
+![快捷键速查表截图占位](docs/screenshot-shortcuts.png)
+
+## 功能
+
+| 功能 | 入口 | 说明 |
+| --- | --- | --- |
+| 命令面板 | `Ctrl+K` / `Ctrl+Shift+P`，或会话头部 🔍 按钮 | 全屏毛玻璃弹层，输入即过滤（支持中文、关键词、命令 id），`↑↓` 导航、`Enter` 执行、`Esc` 关闭；无匹配时显示「没有匹配命令」并提示快捷键 |
+| 切换会话 | 面板输入「切换 / session」 | 列出最近会话，回车直接打开 |
+| 新建会话 | 面板「新建」 | 走宿主 sessions 服务的 create 接口（不可用时给出提示） |
+| 删除当前会话 | 面板「删除」 | 转发 `/__chameleon/session/delete`（需安装 @huanlin/dsh-plugin-session-delete），成功后刷新列表并打开下一个会话 |
+| 导出会话 Markdown | 面板「导出」 | 通过 `/api/message-ops/messages` 拉取消息（需安装 @240xu/dsh-message-ops），生成大纲级 Markdown 下载；插件不在时优雅降级提示 |
+| 消息操作面板 | 面板「消息操作」 | 转发 `dsh-message-ops:open` 事件唤起 message-ops 的回滚/删除/分支对话框 |
+| Websearch 设置 | 面板「websearch」 | 派发 `dsh-websearch:open-settings` 事件并给出指引提示 |
+| 快捷键速查表 | `Ctrl+K` `Ctrl+S`（和弦） | 列出 devkit 全部键位 + 各命令声明键位 |
+| Toast 通知 | API | 右下角堆叠、自动消失、CSS 动画，四类配色 |
+| 开发者信息 | 面板输入「dev info」 | profile、DSH 版本（`/api/pair/status`，不可用则降级 UA）、当前会话 id、命令注册来源、插件版本 |
+
+HTTP 端点（只读）：
+
+- `GET /api/devkit/commands` —— 内置命令清单 JSON（供外部工具/文档消费）
+- `GET /api/devkit/health` —— 插件存活与版本信息
+
+## 为什么不占侧边栏
+
+**用户明确要求侧边栏零改动**，本插件把这一点作为硬约束，而不是折中：
+
+1. **交互范式天然匹配**。VS Code 的命令面板本身就是全屏 overlay（浮在编辑器上方），不是侧边栏。移植它的开发者体验，正确的载体就是 `shell.overlay` 槽——居中顶部、毛玻璃背景、输入即过滤，与宿主的会话弹层同一套渲染管线，不会挤压工作区。
+2. **可达性靠两件事补齐**：会话头部的 🔍 按钮（`conversation.session.header.actions` 槽，也是既有兼容面）提供鼠标入口；`Ctrl+K` 提供键盘入口。不占任何常驻空间。
+3. **零布局风险**。overlay 不改变宿主 flex/grid 结构，不与现有侧边栏插件（better-sidebar 等）争抢位置，主题切换、窄屏、HMR 重建都不会产生残留布局。
+4. **对其它插件零侵入**。贡献点（见下）只要求对方调用 `window.__dshDevkit.registerCommand(...)`，不需要协调任何侧边栏注册面。
+
+因此本插件只使用三个既有兼容面：`shell.overlay`、`conversation.session.header.actions`、自持 HTTP 端点。
+
+## 给插件作者：注册你的命令（contribution point）
+
+```js
+const unregister = window.__dshDevkit.registerCommand({
+  id: 'my-plugin.do-thing',              // 建议以插件名为前缀
+  title: '执行我的操作',                  // 也支持 titleZh / titleEn 分语言
+  shortcut: 'Ctrl+Alt+M',                // 可选，仅展示在面板与速查表
+  keywords: ['我的', 'thing'],            // 可选，过滤命中词
+  run: () => { /* 执行 */ },              // 返回值可为 Promise
+})
+// unregister() 可随时撤下
+```
+
+Toast 同样开放：
+
+```js
+window.__dshDevkit.toast('分支完成', { kind: 'ok', timeoutMs: 3000 })
+// kind: 'info' | 'ok' | 'warn' | 'error'
+```
+
+重复 id 注册会抛错，保证命令来源可追溯。
+
+## 键位与输入框豁免
+
+- 监听在 **capture 阶段**，`Ctrl+K` 先于页面大多数处理。
+- 事件目标为 `input` / `textarea` / `contentEditable` 时，除 `Esc`（仅用于关闭 devkit 弹层）外**不拦截任何键**——聊天输入框、搜索框、其它插件的表单不受影响。
+- 和弦语义：`Ctrl+K` 立即打开面板并武装和弦，1.5s 内 `Ctrl+S` 切换为快捷键速查表（输入框里打字不会误触，因为豁免规则先于和弦生效）。未消费的 `Ctrl+S` 仍走浏览器默认行为。
+
+## 安装
+
+```bash
+# 已发布 npm 包后（web profile）
+dsh plugin --profile web add @240xu/dsh-devkit
+```
+
+Windows / Termux 本地路径安装（未发包时）：
+
+```bash
+# Windows (PowerShell)
+dsh plugin --profile web add "file:///C:/Users/you/dsh-plugins-src/dsh-devkit"
+
+# Termux / Linux
+dsh plugin --profile web add "file:///data/data/com.termux/files/home/dsh-plugins-src/dsh-devkit"
+```
+
+安装后刷新 web 页面即可。
+
+## 兼容性
+
+- Node ≥ 20；零 npm 依赖（服务端仅 `node:fs/path/os/url`，客户端纯 `React.createElement`）。
+- locale：跟随宿主 `locale` 服务做 zh/en 双语；服务缺失时按浏览器语言回退。
+- 各能力按依赖存在与否**独立降级**：session-delete 未装则删除命令报错提示；message-ops 未装则导出/消息操作提示不可用；sessions 服务缺失则延迟注入等待。
+
+## 开发
+
+```bash
+npm test          # node --test，26 个用例：命令过滤/和弦状态机/输入框豁免/health 端点
+```
+
+浏览器端 UI 无法单测，交付前以 `node --check` 保证三个源文件语法，并以真实 web profile 验证面板交互。
+
+## License
+
+MIT

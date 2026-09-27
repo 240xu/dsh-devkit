@@ -1,0 +1,38 @@
+{
+  "name": "@240xu/dsh-devkit",
+  "version": "0.1.0",
+  "description": "DSH web plugin: VS Code-grade developer experience without touching any sidebar. Command palette (Ctrl+K / Ctrl+Shift+P) with an open registerCommand contribution point for other plugins, chord keyboard layer (Ctrl+K Ctrl+S), toast notifications, dev info overlay and health/commands HTTP endpoints. Zero npm dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "author": "240xu",
+  "keywords": ["dsh-plugin"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/240xu/dsh-devkit.git"
+  },
+  "files": ["src/", "test/", "cordis.patch.yml", "README.md", "LICENSE"],
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./core": "./src/core.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
