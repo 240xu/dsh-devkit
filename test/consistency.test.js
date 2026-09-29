@@ -68,3 +68,26 @@ test('dual-source thin copies are in sync (core.js vs client.js)', () => {
   const drifted = report.filter((r) => !r.same).map((r) => r.name + ' (' + r.ha + ' vs ' + r.hb + ')')
   assert.deepEqual(drifted, [], 'dual-source drift detected in: ' + drifted.join(', ') + ' — 修改必须同步 core.js 与 client.js 两处')
 })
+
+// --- VERSION single-source guard (audit B1) --------------------------------------
+// VERSION lives in three places (package.json / src/core.js / src/client.js
+// classic-script literal). Extract each and assert they are identical.
+
+function extractVersion(src) {
+  const m = src.match(/"version":\s*"([^"]+)"/) // package.json
+  if (m) return m[1]
+  const c = src.match(/VERSION = '([^']+)'/) // core.js export / client.js const
+  return c ? c[1] : null
+}
+
+test('VERSION is identical across package.json / core.js / client.js', () => {
+  const versions = {
+    'package.json': extractVersion(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')),
+    'src/core.js': extractVersion(fs.readFileSync(path.join(ROOT, 'src', 'core.js'), 'utf8')),
+    'src/client.js': extractVersion(fs.readFileSync(path.join(ROOT, 'src', 'client.js'), 'utf8')),
+  }
+  const missing = Object.entries(versions).filter(([, v]) => !v).map(([k]) => k)
+  assert.deepEqual(missing, [], 'version string not found in: ' + missing.join(', '))
+  const uniq = [...new Set(Object.values(versions))]
+  assert.equal(uniq.length, 1, 'VERSION drift detected: ' + JSON.stringify(versions) + ' — 三处必须同步 bump')
+})
