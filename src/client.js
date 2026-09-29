@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
     // N2: classic-script bundle cannot import package.json; bundler-side
     // injection is not part of the client-modules protocol, so a literal with
     // a sync note is the simplest single source. Bump together with package.json.
-    const VERSION = '0.2.2'
+    const VERSION = '0.2.3'
     const OVERLAY_SLOT = 'shell.overlay'
     const HEADER_SLOT = 'conversation.session.header.actions'
     const OVERLAY_ID = 'devkit-overlay'

@@ -20,7 +20,7 @@
 // thin copies of matchCommands / isTextInputTarget / chord handling so the
 // shipped bundle stays self-contained. This file is the tested reference.
 
-export const VERSION = '0.2.2'
+export const VERSION = '0.2.3'
 
 // Static metadata for the built-in commands. `run` lives only in the client.
 export const BUILTIN_COMMANDS = [

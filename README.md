@@ -165,3 +165,8 @@ MIT
 
 - 新增命令**打开会话搜索面板…**（`devkit.searchPanel`）：`window.open('/api/session-search/panel')`，与「搜索会话历史」同受 `GET /api/session-search/health` 探测门控。
 - 探测端点 URL 与 dsh-session-search v0.1.0 实际契约核对一致：`/api/session-search/health`（探测）、`/api/session-search/search?q=`（全文）、`/api/session-search/panel`（面板页，本轮新增深链——0.2.0 时预留的「发现方式待 W2 敲定」事项落地）。
+
+### 0.2.3（审计修复轮）
+
+- 【盲区 B1】VERSION 三处一致性守卫：`test/consistency.test.js` 新增断言，package.json / core.js / client.js 三处版本字符串正则提取比对，漂移即测试红（与本轮 0.2.3 三处同步 bump 自证）。
+- 【P2】`npm test` 脚本 Windows 兼容：未加引号的 shell glob `test/*.test.js` 在 cmd.exe 下不展开、`node --test <目录>` 在部分 Node 构建下报 MODULE_NOT_FOUND——改为零依赖 runner `scripts/run-tests.js`（node:fs globSync 在进程内取文件清单后 spawn `node --test <files>`），POSIX/Windows 行为一致，保留默认 spec reporter。
