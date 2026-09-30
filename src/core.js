@@ -20,7 +20,7 @@
 // thin copies of matchCommands / isTextInputTarget / chord handling so the
 // shipped bundle stays self-contained. This file is the tested reference.
 
-export const VERSION = '0.2.6'
+export const VERSION = '0.2.7'
 
 // Static metadata for the built-in commands. `run` lives only in the client.
 export const BUILTIN_COMMANDS = [
@@ -313,9 +313,18 @@ export function normalizeSearchResults(data) {
 // snap.current is always undefined). Derive it defensively across the field
 // shapes seen in the wild; every probe is a soft signal, null when unclear.
 export function deriveCurrentSessionId(snap, uiWorkspaceTarget) {
-  // Host truth: uiWorkspace's mainView target (retain source:'mainView')
-  // outranks every snapshot signal — pass it as the 2nd argument.
+  // Explicit override wins (caller already knows the target).
   if (uiWorkspaceTarget) return uiWorkspaceTarget
+  // Host-canonical derivation (RT dsh-client-ui-workspace client.js:260):
+  // the current session is the byId entry whose mainView retention count > 0.
+  if (snap && typeof snap === 'object' && snap.byId && typeof snap.byId === 'object') {
+    for (const id of Object.keys(snap.byId)) {
+      const row = snap.byId[id]
+      if (row && row.retainedBy && typeof row.retainedBy === 'object' && (row.retainedBy.mainView ?? 0) > 0) {
+        return id
+      }
+    }
+  }
   if (!snap || typeof snap !== 'object') return null
   if (snap.current) return snap.current
   if (snap.phase && typeof snap.phase === 'object') {

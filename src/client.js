@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
     // N2: classic-script bundle cannot import package.json; bundler-side
     // injection is not part of the client-modules protocol, so a literal with
     // a sync note is the simplest single source. Bump together with package.json.
-    const VERSION = '0.2.6'
+    const VERSION = '0.2.7'
     const OVERLAY_SLOT = 'shell.overlay'
     const HEADER_SLOT = 'conversation.session.header.actions'
     const OVERLAY_ID = 'devkit-overlay'
@@ -292,6 +292,14 @@ window.__ModuleLoader__.load({
 
     function deriveCurrentSessionId(snap, uiWorkspaceTarget) {
       if (uiWorkspaceTarget) return uiWorkspaceTarget
+      if (snap && typeof snap === 'object' && snap.byId && typeof snap.byId === 'object') {
+        for (const id of Object.keys(snap.byId)) {
+          const row = snap.byId[id]
+          if (row && row.retainedBy && typeof row.retainedBy === 'object' && (row.retainedBy.mainView ?? 0) > 0) {
+            return id
+          }
+        }
+      }
       if (!snap || typeof snap !== 'object') return null
       if (snap.current) return snap.current
       if (snap.phase && typeof snap.phase === 'object') {
