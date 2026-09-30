@@ -183,3 +183,9 @@ MIT
 - **切换会话双通道打开**：`sessions.open(id)` 失败/缺席时回落 `uiWorkspace.openSession(id)`（apply 时同步抓取 + deferred inject 晚绑定）。
 - **「当前会话」判定修复**：不再读取恒为 undefined 的 `snap.current`，改为 `deriveCurrentSessionId(snap)` 多信号推导（`phase.current / currentSessionId / sessionId` → `projectionsBySession[*].current|isCurrent`），纯函数下沉 core.js 双源同步 + 单测覆盖五种快照形态。
 - **刷新 API 探测**：`refreshSessionsList()` 优先宿主现行 `ISessions.refresh()`，回落旧名 `refreshList()`（删除会话与新建会话两条路径均接入）。
+
+### 0.2.6（当前会话判定收敛到宿主真源）
+
+- 按裁决文档（cross-sessions-face.md）契约收敛：SessionListState 无 current/currentSessionId 字段，「当前会话」宿主真源是 uiWorkspace（retain source:'mainView'）。
+- `deriveCurrentSessionId(snap, uiWorkspaceTarget)`：第 2 参数（调用方传入已抓取 uiWorkspace 的当前 target）有值时**直接采纳**，无值走原快照软信号链（保留为 fallback）。
+- 新增 `pickUiWorkspaceTargetId(uw)`：防御性读取 mainView.sessionId/target/current → currentTarget/target/sessionId；`currentSessionId()` 已接入。

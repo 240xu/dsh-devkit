@@ -20,7 +20,7 @@
 // thin copies of matchCommands / isTextInputTarget / chord handling so the
 // shipped bundle stays self-contained. This file is the tested reference.
 
-export const VERSION = '0.2.5'
+export const VERSION = '0.2.6'
 
 // Static metadata for the built-in commands. `run` lives only in the client.
 export const BUILTIN_COMMANDS = [
@@ -312,7 +312,10 @@ export function normalizeSearchResults(data) {
 // The client sessions-store snapshot has NO stable `current` field (reading
 // snap.current is always undefined). Derive it defensively across the field
 // shapes seen in the wild; every probe is a soft signal, null when unclear.
-export function deriveCurrentSessionId(snap) {
+export function deriveCurrentSessionId(snap, uiWorkspaceTarget) {
+  // Host truth: uiWorkspace's mainView target (retain source:'mainView')
+  // outranks every snapshot signal — pass it as the 2nd argument.
+  if (uiWorkspaceTarget) return uiWorkspaceTarget
   if (!snap || typeof snap !== 'object') return null
   if (snap.current) return snap.current
   if (snap.phase && typeof snap.phase === 'object') {
@@ -327,4 +330,16 @@ export function deriveCurrentSessionId(snap) {
     }
   }
   return null
+}
+
+// Defensive read of the adopted uiWorkspace handle for its current target
+// session id (field shape not fully pinned; every probe is a soft signal).
+export function pickUiWorkspaceTargetId(uw) {
+  if (!uw || typeof uw !== 'object') return null
+  const mv = uw.mainView
+  if (mv && typeof mv === 'object') {
+    const t = mv.sessionId || mv.target || mv.current
+    if (t) return String(t)
+  }
+  return uw.currentTarget || uw.target || uw.sessionId || null
 }

@@ -193,3 +193,34 @@ test('deriveCurrentSessionId: tolerant of junk (null / no signals → null)', ()
   assert.equal(deriveCurrentSessionId({}), null)
   assert.equal(deriveCurrentSessionId({ phase: 'junk', projectionsBySession: 42 }), null)
 })
+
+// --- uiWorkspace-truth convergence (0.2.6) ------------------------------------------
+
+import { pickUiWorkspaceTargetId } from '../src/core.js'
+
+test('deriveCurrentSessionId: uiWorkspaceTarget outranks every snapshot signal', () => {
+  const snap = { current: 'snap-current', phase: { current: 'phase-x' } }
+  assert.equal(deriveCurrentSessionId(snap, 'uw-target'), 'uw-target')
+  assert.equal(deriveCurrentSessionId(null, 'uw-target'), 'uw-target')
+})
+
+test('deriveCurrentSessionId: without target, snapshot chain unchanged', () => {
+  assert.equal(deriveCurrentSessionId({ current: 's1' }, null), 's1')
+  assert.equal(deriveCurrentSessionId({ phase: { current: 'p1' } }, undefined), 'p1')
+  assert.equal(deriveCurrentSessionId({}, null), null)
+})
+
+test('pickUiWorkspaceTargetId: mainView.sessionId/target/current probes', () => {
+  assert.equal(pickUiWorkspaceTargetId({ mainView: { sessionId: 'a' } }), 'a')
+  assert.equal(pickUiWorkspaceTargetId({ mainView: { target: 'b' } }), 'b')
+  assert.equal(pickUiWorkspaceTargetId({ mainView: { current: 'c' } }), 'c')
+})
+
+test('pickUiWorkspaceTargetId: top-level fallbacks and junk tolerance', () => {
+  assert.equal(pickUiWorkspaceTargetId({ currentTarget: 'd' }), 'd')
+  assert.equal(pickUiWorkspaceTargetId({ target: 'e' }), 'e')
+  assert.equal(pickUiWorkspaceTargetId({ sessionId: 'f' }), 'f')
+  assert.equal(pickUiWorkspaceTargetId({}), null)
+  assert.equal(pickUiWorkspaceTargetId(null), null)
+  assert.equal(pickUiWorkspaceTargetId(42), null)
+})

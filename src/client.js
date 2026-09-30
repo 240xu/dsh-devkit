@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
     // N2: classic-script bundle cannot import package.json; bundler-side
     // injection is not part of the client-modules protocol, so a literal with
     // a sync note is the simplest single source. Bump together with package.json.
-    const VERSION = '0.2.5'
+    const VERSION = '0.2.6'
     const OVERLAY_SLOT = 'shell.overlay'
     const HEADER_SLOT = 'conversation.session.header.actions'
     const OVERLAY_ID = 'devkit-overlay'
@@ -237,7 +237,7 @@ window.__ModuleLoader__.load({
     // --- palette prefixes / MRU (dual-source: mirrors src/core.js) ---------------
     // DUAL-SOURCE with core.js parsePaletteQuery / pushMru / applyMruRank /
     // pluginSource / sortCommandsBySource / normalizeSearchResults /
-    // deriveCurrentSessionId /
+    // deriveCurrentSessionId / pickUiWorkspaceTargetId /
     // MRU_KEY / MRU_CAP — test/consistency.test.js hashes both copies.
 
     const MRU_KEY = 'dsh-devkit-mru'
@@ -290,7 +290,8 @@ window.__ModuleLoader__.load({
         .filter((r) => r.id)
     }
 
-    function deriveCurrentSessionId(snap) {
+    function deriveCurrentSessionId(snap, uiWorkspaceTarget) {
+      if (uiWorkspaceTarget) return uiWorkspaceTarget
       if (!snap || typeof snap !== 'object') return null
       if (snap.current) return snap.current
       if (snap.phase && typeof snap.phase === 'object') {
@@ -305,6 +306,16 @@ window.__ModuleLoader__.load({
         }
       }
       return null
+    }
+
+    function pickUiWorkspaceTargetId(uw) {
+      if (!uw || typeof uw !== 'object') return null
+      const mv = uw.mainView
+      if (mv && typeof mv === 'object') {
+        const t = mv.sessionId || mv.target || mv.current
+        if (t) return String(t)
+      }
+      return uw.currentTarget || uw.target || uw.sessionId || null
     }
 
     class ProbeCache {
@@ -344,7 +355,7 @@ window.__ModuleLoader__.load({
     }
 
     function currentSessionId() {
-      return deriveCurrentSessionId(sessionsSnapshot())
+      return deriveCurrentSessionId(sessionsSnapshot(), pickUiWorkspaceTargetId(__uiWorkspace))
     }
 
     function listRecentSessions() {
