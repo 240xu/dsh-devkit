@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
     // N2: classic-script bundle cannot import package.json; bundler-side
     // injection is not part of the client-modules protocol, so a literal with
     // a sync note is the simplest single source. Bump together with package.json.
-    const VERSION = '0.2.3'
+    const VERSION = '0.2.4'
     const OVERLAY_SLOT = 'shell.overlay'
     const HEADER_SLOT = 'conversation.session.header.actions'
     const OVERLAY_ID = 'devkit-overlay'
@@ -422,6 +422,7 @@ window.__ModuleLoader__.load({
       'devkit.session.exportMarkdown': '导出当前会话 Markdown…',
       'devkit.messageOps': '消息操作面板（回滚/删除/分支）…',
       'devkit.websearch.settings': '打开 Websearch 设置…',
+      'devkit.session.copyId': '复制当前会话 ID',
       'devkit.devinfo': '开发者信息（dev info）',
       'devkit.shortcuts': '快捷键速查表',
     }
@@ -457,8 +458,8 @@ window.__ModuleLoader__.load({
       const record = {
         id,
         title,
-        titleZh: title,
-        titleEn: title,
+        titleZh: String(spec.titleZh || title),
+        titleEn: String(spec.titleEn || title),
         shortcut: spec.shortcut ? String(spec.shortcut) : null,
         keywords: Array.isArray(spec.keywords) ? spec.keywords.map(String) : [],
         foreign: !builtinTitlesZh[id],
@@ -476,7 +477,7 @@ window.__ModuleLoader__.load({
     }
 
     function commandTitleZh(cmd) {
-      return builtinTitlesZh[cmd.id] || cmd.title
+      return builtinTitlesZh[cmd.id] || cmd.titleZh || cmd.title
     }
 
     // --- overlay open/close plumbing ----------------------------------------------
@@ -616,21 +617,33 @@ window.__ModuleLoader__.load({
 
     // Probe-gated registrations (fail-soft): a command only appears when the
     // plugin it depends on answers its health/route probe. 协作矩阵见 README。
+    // Titles come from this static map, NOT __t(): registration happens in an
+    // async probe callback where the locale service may not be adopted yet —
+    // a frozen __t() string would render single-language forever.
+    const gatedTitles = {
+      'devkit.searchHistory': { zh: '搜索会话历史…', en: 'Search session history…' },
+      'devkit.searchPanel': { zh: '打开会话搜索面板…', en: 'Open session search panel…' },
+      'devkit.lazyview': { zh: '打开 lazy-view 面板…', en: 'Open lazy-view panel…' },
+    }
+
     function registerProbeGatedCommands() {
       // dsh-session-search (roadmap W2): full-text search lives in the devkit
-      // '#' palette mode; deep-link to its own panel lands once the discovery
-      // scheme is settled.
+      // '#' palette mode; its own panel page is a deep link (v0.1.0 contract).
       __probeCache.probe('/api/session-search/health').then((ok) => {
         if (!ok) return
         registerCommand({
           id: 'devkit.searchHistory',
-          title: __t('cmd.searchHistory'),
+          title: gatedTitles['devkit.searchHistory'].zh,
+          titleZh: gatedTitles['devkit.searchHistory'].zh,
+          titleEn: gatedTitles['devkit.searchHistory'].en,
           keywords: ['搜索', '历史', '全文', 'search', 'history'],
           run: () => window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { mode: 'palette', preset: '#' } })),
         })
         registerCommand({
           id: 'devkit.searchPanel',
-          title: __t('cmd.searchPanel'),
+          title: gatedTitles['devkit.searchPanel'].zh,
+          titleZh: gatedTitles['devkit.searchPanel'].zh,
+          titleEn: gatedTitles['devkit.searchPanel'].en,
           keywords: ['搜索', '面板', '全文', 'search', 'panel'],
           run: () => { try { window.open('/api/session-search/panel', '_blank') } catch { window.location.assign('/api/session-search/panel') } },
         })
@@ -641,7 +654,9 @@ window.__ModuleLoader__.load({
         if (!ok) return
         registerCommand({
           id: 'devkit.lazyview',
-          title: __t('cmd.lazyview'),
+          title: gatedTitles['devkit.lazyview'].zh,
+          titleZh: gatedTitles['devkit.lazyview'].zh,
+          titleEn: gatedTitles['devkit.lazyview'].en,
           keywords: ['lazy', 'view', 'timeline', '时间线', '查看器'],
           run: () => { try { window.open('/lazyview', '_blank') } catch { window.location.assign('/lazyview') } },
         })
@@ -780,9 +795,10 @@ window.__ModuleLoader__.load({
       const listRef = useRef(null)
 
       useEffect(() => {
-        __registryListeners.push(() => setRegistryRev((v) => v + 1))
+        const onRegistry = () => setRegistryRev((v) => v + 1)
+        __registryListeners.push(onRegistry)
         return () => {
-          __registryListeners = __registryListeners.filter((fn) => fn && fn.__devkitOverlayCleanup !== true)
+          __registryListeners = __registryListeners.filter((fn) => fn !== onRegistry)
         }
       }, [])
 
@@ -995,7 +1011,7 @@ window.__ModuleLoader__.load({
           ])),
           React.createElement('div', { key: 'h2', style: { ...infoRowStyle, color: 'var(--dsw-alias-label-tertiary,#8a8a8e)', fontSize: 11, paddingTop: 12 } }, t('shortcuts.commands')),
           __commands.filter((c) => c.shortcut).map((c, i) => React.createElement('div', { key: 'cmd' + i, style: rowStyle }, [
-            React.createElement('span', { key: 't' }, c.foreign ? c.title : commandTitleZh(c)),
+            React.createElement('span', { key: 't' }, c.foreign ? (c.titleZh || c.title) : commandTitleZh(c)),
             React.createElement('span', { key: 'k', style: kbdStyle }, c.shortcut),
           ])),
         ])
@@ -1060,7 +1076,7 @@ window.__ModuleLoader__.load({
                 ])
               : items.map((item, i) => {
                   const isCmd = item.kind === 'command'
-                  const label = isCmd ? (item.foreign ? item.title : commandTitleZh(item)) : item.title
+                  const label = isCmd ? (item.foreign ? (item.titleZh || item.title) : commandTitleZh(item)) : item.title
                   let badge = null
                   if (item.kind === 'ft') {
                     badge = t('badge.fullText')

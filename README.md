@@ -170,3 +170,10 @@ MIT
 
 - 【盲区 B1】VERSION 三处一致性守卫：`test/consistency.test.js` 新增断言，package.json / core.js / client.js 三处版本字符串正则提取比对，漂移即测试红（与本轮 0.2.3 三处同步 bump 自证）。
 - 【P2】`npm test` 脚本 Windows 兼容：未加引号的 shell glob `test/*.test.js` 在 cmd.exe 下不展开、`node --test <目录>` 在部分 Node 构建下报 MODULE_NOT_FOUND——改为零依赖 runner `scripts/run-tests.js`（node:fs globSync 在进程内取文件清单后 spawn `node --test <files>`），POSIX/Windows 行为一致，保留默认 spec reporter。
+
+### 0.2.4（全面自检 + 真实执行验证）
+
+- **【真 bug·smoke 抓出】** `devkit.session.copyId` 加入命令 defs 时漏加 `builtinTitlesZh` 标题映射，`apply()` 注册时抛错导致**整个插件初始化失败**——新增 `test/client-smoke.test.js`（vm 无头真实执行 client.js：stub window/document/React，驱动 factory→apply→注册表→键盘层→toast 全链路）正是为抓这类回归。修复映射后 8/8 过。
+- 监听器 cleanup 失效修复：overlay 的 registry 监听按引用注销（原 filter 条件永假，StrictMode 双挂载会重复累计）。
+- 探测门控命令（searchHistory/searchPanel/lazyview）标题改为静态双语映射：原在异步探测回调里用 `__t()` 冻结标题，locale 服务晚到时会永远单语。
+- `registerCommand` 支持显式 `titleZh`/`titleEn`；palette 与速查表对外部命令也优先读双语字段。
