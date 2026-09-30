@@ -177,3 +177,9 @@ MIT
 - 监听器 cleanup 失效修复：overlay 的 registry 监听按引用注销（原 filter 条件永假，StrictMode 双挂载会重复累计）。
 - 探测门控命令（searchHistory/searchPanel/lazyview）标题改为静态双语映射：原在异步探测回调里用 `__t()` 冻结标题，locale 服务晚到时会永远单语。
 - `registerCommand` 支持显式 `titleZh`/`titleEn`；palette 与速查表对外部命令也优先读双语字段。
+
+### 0.2.5（sessions-face 修复）
+
+- **切换会话双通道打开**：`sessions.open(id)` 失败/缺席时回落 `uiWorkspace.openSession(id)`（apply 时同步抓取 + deferred inject 晚绑定）。
+- **「当前会话」判定修复**：不再读取恒为 undefined 的 `snap.current`，改为 `deriveCurrentSessionId(snap)` 多信号推导（`phase.current / currentSessionId / sessionId` → `projectionsBySession[*].current|isCurrent`），纯函数下沉 core.js 双源同步 + 单测覆盖五种快照形态。
+- **刷新 API 探测**：`refreshSessionsList()` 优先宿主现行 `ISessions.refresh()`，回落旧名 `refreshList()`（删除会话与新建会话两条路径均接入）。

@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
     // N2: classic-script bundle cannot import package.json; bundler-side
     // injection is not part of the client-modules protocol, so a literal with
     // a sync note is the simplest single source. Bump together with package.json.
-    const VERSION = '0.2.4'
+    const VERSION = '0.2.5'
     const OVERLAY_SLOT = 'shell.overlay'
     const HEADER_SLOT = 'conversation.session.header.actions'
     const OVERLAY_ID = 'devkit-overlay'
@@ -148,6 +148,7 @@ window.__ModuleLoader__.load({
 
     var __locale = null
     var __sessionsSvc = null
+    var __uiWorkspace = null
 
     function localeFallbackLang() {
       if (typeof navigator === 'undefined') return 'zh'
@@ -236,6 +237,7 @@ window.__ModuleLoader__.load({
     // --- palette prefixes / MRU (dual-source: mirrors src/core.js) ---------------
     // DUAL-SOURCE with core.js parsePaletteQuery / pushMru / applyMruRank /
     // pluginSource / sortCommandsBySource / normalizeSearchResults /
+    // deriveCurrentSessionId /
     // MRU_KEY / MRU_CAP — test/consistency.test.js hashes both copies.
 
     const MRU_KEY = 'dsh-devkit-mru'
@@ -288,6 +290,23 @@ window.__ModuleLoader__.load({
         .filter((r) => r.id)
     }
 
+    function deriveCurrentSessionId(snap) {
+      if (!snap || typeof snap !== 'object') return null
+      if (snap.current) return snap.current
+      if (snap.phase && typeof snap.phase === 'object') {
+        const c = snap.phase.current || snap.phase.currentSessionId || snap.phase.sessionId
+        if (c) return c
+      }
+      const proj = snap.projectionsBySession
+      if (proj && typeof proj === 'object') {
+        for (const key of Object.keys(proj)) {
+          const v = proj[key]
+          if (v && (v.current === true || v.isCurrent === true)) return key
+        }
+      }
+      return null
+    }
+
     class ProbeCache {
       constructor(opts) {
         const o = opts || {}
@@ -325,8 +344,7 @@ window.__ModuleLoader__.load({
     }
 
     function currentSessionId() {
-      const snap = sessionsSnapshot()
-      return snap && snap.current ? snap.current : null
+      return deriveCurrentSessionId(sessionsSnapshot())
     }
 
     function listRecentSessions() {
@@ -338,10 +356,26 @@ window.__ModuleLoader__.load({
     }
 
     function openSession(id) {
+      if (!id) return false
       if (__sessionsSvc && typeof __sessionsSvc.open === 'function') {
-        try { __sessionsSvc.open(id); return true } catch { return false }
+        try { __sessionsSvc.open(id); return true } catch { /* fall through to uiWorkspace */ }
+      }
+      if (__uiWorkspace && typeof __uiWorkspace.openSession === 'function') {
+        try { __uiWorkspace.openSession(id); return true } catch { /* give up */ }
       }
       return false
+    }
+
+    // fix 3: refresh probes the host's current ISessions.refresh() first,
+    // falling back to the legacy refreshList() name.
+    function refreshSessionsList() {
+      const svc = __sessionsSvc
+      if (!svc) return Promise.resolve(false)
+      try {
+        if (typeof svc.refresh === 'function') return Promise.resolve(svc.refresh()).then(() => true)
+        if (typeof svc.refreshList === 'function') return Promise.resolve(svc.refreshList()).then(() => true)
+      } catch { /* best-effort */ }
+      return Promise.resolve(false)
     }
 
     // --- toast (plain DOM, no React needed) --------------------------------------
@@ -500,7 +534,7 @@ window.__ModuleLoader__.load({
           if (typeof svc[name] === 'function') {
             try {
               const r = svc[name]()
-              if (svc && typeof svc.refreshList === 'function') { try { svc.refreshList() } catch { /* list refresh is best-effort */ } }
+              refreshSessionsList()
               toast(__t('toast.newOk'), { kind: 'ok' })
               if (r && r.then) r.then((s) => { if (s && s.id) openSession(s.id) }).catch(() => {})
               return
@@ -525,13 +559,11 @@ window.__ModuleLoader__.load({
         const data = await res.json().catch(() => ({}))
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status))
         toast(__t('toast.deleteOk'), { kind: 'ok' })
-        if (__sessionsSvc && typeof __sessionsSvc.refreshList === 'function') {
-          Promise.resolve(__sessionsSvc.refreshList()).then(() => {
-            const snap = sessionsSnapshot()
-            const next = snap && snap.ids ? snap.ids.find((x) => x !== sessionId) : null
-            if (next) openSession(next)
-          }).catch(() => {})
-        }
+        refreshSessionsList().then(() => {
+          const snap = sessionsSnapshot()
+          const next = snap && snap.ids ? snap.ids.find((x) => x !== sessionId) : null
+          if (next) openSession(next)
+        }).catch(() => {})
       } catch (e) {
         toast(__t('toast.deleteFail') + (e && e.message ? e.message : e), { kind: 'error' })
       }
@@ -1218,6 +1250,10 @@ window.__ModuleLoader__.load({
       __sessionsSvc = ctx.get('sessions')
       if (!__sessionsSvc) {
         ctx.inject(['sessions'], (sub) => { __sessionsSvc = sub.sessions })
+      }
+      __uiWorkspace = ctx.get('uiWorkspace')
+      if (!__uiWorkspace) {
+        ctx.inject(['uiWorkspace'], (sub) => { __uiWorkspace = sub.uiWorkspace })
       }
       adoptLocale(ctx.get('locale'), ctx)
       if (!__locale) {

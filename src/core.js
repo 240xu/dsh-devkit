@@ -20,7 +20,7 @@
 // thin copies of matchCommands / isTextInputTarget / chord handling so the
 // shipped bundle stays self-contained. This file is the tested reference.
 
-export const VERSION = '0.2.4'
+export const VERSION = '0.2.5'
 
 // Static metadata for the built-in commands. `run` lives only in the client.
 export const BUILTIN_COMMANDS = [
@@ -306,4 +306,25 @@ export function normalizeSearchResults(data) {
       snippet: (r && (r.snippet || r.preview || r.context)) || '',
     }))
     .filter((r) => r.id)
+}
+
+// --- current-session derivation -------------------------------------------------
+// The client sessions-store snapshot has NO stable `current` field (reading
+// snap.current is always undefined). Derive it defensively across the field
+// shapes seen in the wild; every probe is a soft signal, null when unclear.
+export function deriveCurrentSessionId(snap) {
+  if (!snap || typeof snap !== 'object') return null
+  if (snap.current) return snap.current
+  if (snap.phase && typeof snap.phase === 'object') {
+    const c = snap.phase.current || snap.phase.currentSessionId || snap.phase.sessionId
+    if (c) return c
+  }
+  const proj = snap.projectionsBySession
+  if (proj && typeof proj === 'object') {
+    for (const key of Object.keys(proj)) {
+      const v = proj[key]
+      if (v && (v.current === true || v.isCurrent === true)) return key
+    }
+  }
+  return null
 }

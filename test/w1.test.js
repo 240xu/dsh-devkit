@@ -167,3 +167,29 @@ test('normalizeSearchResults maps alternative field names and drops id-less rows
   ])
   assert.deepEqual(out, [{ id: 's2', title: 'alt', seq: 1.5, snippet: 'p' }])
 })
+
+// --- sessions-face fixes (0.2.5) ---------------------------------------------------
+
+import { deriveCurrentSessionId } from '../src/core.js'
+
+test('deriveCurrentSessionId: snap.current still wins when present', () => {
+  assert.equal(deriveCurrentSessionId({ current: 's1' }), 's1')
+})
+
+test('deriveCurrentSessionId: phase.current / currentSessionId / sessionId probes', () => {
+  assert.equal(deriveCurrentSessionId({ phase: { current: 'p1' } }), 'p1')
+  assert.equal(deriveCurrentSessionId({ phase: { currentSessionId: 'p2' } }), 'p2')
+  assert.equal(deriveCurrentSessionId({ phase: { sessionId: 'p3' } }), 'p3')
+})
+
+test('deriveCurrentSessionId: projectionsBySession current/isCurrent flags', () => {
+  assert.equal(deriveCurrentSessionId({ projectionsBySession: { a: {}, b: { isCurrent: true } } }), 'b')
+  assert.equal(deriveCurrentSessionId({ projectionsBySession: { a: { current: true }, b: { isCurrent: true } } }), 'a')
+})
+
+test('deriveCurrentSessionId: tolerant of junk (null / no signals → null)', () => {
+  assert.equal(deriveCurrentSessionId(null), null)
+  assert.equal(deriveCurrentSessionId(undefined), null)
+  assert.equal(deriveCurrentSessionId({}), null)
+  assert.equal(deriveCurrentSessionId({ phase: 'junk', projectionsBySession: 42 }), null)
+})

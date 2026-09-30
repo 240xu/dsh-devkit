@@ -174,6 +174,24 @@ test('toast executes the DOM path without crashing headlessly', () => {
   assert.doesNotThrow(() => sandbox.window.__dshDevkit.toast('bye', { kind: 'unknown-kind' }))
 })
 
+test('apply() adopts sessions and uiWorkspace services (deferred inject wiring)', () => {
+  const { sandbox, captured } = makeEnv()
+  const injected = []
+  const services = {
+    sessions: { list: { getSnapshot: () => ({ ids: [], byId: {} }) }, refresh: () => {} },
+  }
+  const ctx = {
+    // uiWorkspace deliberately absent: apply() must register a deferred
+    // inject for it so a late-arriving runtime still gets adopted.
+    get: (name) => services[name],
+    inject: (deps, fn) => injected.push({ deps }),
+    effect: (fn) => fn(),
+    slots: { inject: noop, register: () => ({}) },
+  }
+  captured.loaded.factory(sandbox.require).apply(ctx)
+  assert.ok(injected.some((x) => x && x.deps && x.deps.includes('uiWorkspace')), 'uiWorkspace deferred inject missing')
+})
+
 test('client VERSION literal stays in lockstep with package.json', () => {
   const { sandbox, captured } = makeEnv()
   captured.loaded.factory(sandbox.require)
