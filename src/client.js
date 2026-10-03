@@ -69,6 +69,7 @@ window.__ModuleLoader__.load({
       'toast.noSession': '没有当前会话',
       'toast.newOk': '已新建会话',
       'toast.newUnsupported': '当前宿主未提供新建会话接口',
+      'toast.newFail': '新建会话失败：',
       'toast.deleteOk': '会话已删除',
       'toast.deleteFail': '删除失败：',
       'toast.exportOk': 'Markdown 已导出',
@@ -120,6 +121,7 @@ window.__ModuleLoader__.load({
       'toast.noSession': 'No current session',
       'toast.newOk': 'Session created',
       'toast.newUnsupported': 'This host does not expose a create-session API',
+      'toast.newFail': 'New session failed: ',
       'toast.deleteOk': 'Session deleted',
       'toast.deleteFail': 'Delete failed: ',
       'toast.exportOk': 'Markdown exported',
@@ -553,9 +555,23 @@ window.__ModuleLoader__.load({
           if (typeof svc[name] === 'function') {
             try {
               const r = svc[name]()
-              refreshSessionsList()
-              toast(__t('toast.newOk'), { kind: 'ok' })
-              if (r && r.then) r.then((s) => { if (s && s.id) openSession(s.id) }).catch(() => {})
+              if (r && r.then) {
+                // 0.2.8（P2）：ISessions.create() 返回 SessionId 字符串（不是 {id}）——
+                // 原 s.id 恒 undefined → 新建后从不打开；且 toast 在 resolve 前弹、
+                // rejection 被吞（失败也报成功）。成功后才 toast + 打开新会话。
+                r.then((s) => {
+                  const id = typeof s === 'string' ? s : (s && s.id)
+                  refreshSessionsList()
+                  toast(__t('toast.newOk'), { kind: 'ok' })
+                  if (id) openSession(id)
+                }).catch((err) => {
+                  refreshSessionsList()
+                  toast(__t('toast.newFail') + (err && err.message ? err.message : String(err)), { kind: 'warn' })
+                })
+              } else {
+                refreshSessionsList()
+                toast(__t('toast.newOk'), { kind: 'ok' })
+              }
               return
             } catch { /* try the next candidate name */ }
           }
@@ -1071,7 +1087,9 @@ window.__ModuleLoader__.load({
       } else if (mode === 'confirmDelete') {
         // fe-ui review 修复 4：破坏性命令先过确认弹层（风险确认模式）。
         const snap = sessionsSnapshot()
-        const cur = snap && snap.current ? snap.current : null
+        // 0.2.8（P1）：SessionListState（0.2.0）无 current 字段——恒 null 会让确认键
+        // `disabled: busy || !cur` 永久禁用，删除会话唯一破坏性路径点不动。
+        const cur = currentSessionId()
         const curInfo = snap && snap.byId && snap.byId[cur] ? (snap.byId[cur].title || cur) : cur
         body = React.createElement('div', { key: 'confirm', style: { ...listStyle, padding: '0 16px 16px' } }, [
           cur && snap && snap.byId && snap.byId[cur] && snap.byId[cur].running
@@ -1212,7 +1230,7 @@ window.__ModuleLoader__.load({
         [t('devinfo.plugin'), PLUGIN_ID + ' ' + VERSION],
         [t('devinfo.dsh'), host ? String(host.version || host.dshVersion || host.dsh || '—') : (host === null ? '—' : '…')],
         [t('devinfo.profile'), host ? String(host.profile || host.name || '—') : '—'],
-        [t('devinfo.session'), snap && snap.current ? snap.current : '—'],
+        [t('devinfo.session'), currentSessionId() || '—'],
         [t('devinfo.sources'), sources.join(', ')],
       ]
       if (host === null) rows.push([t('devinfo.ua'), (navigator && navigator.userAgent) || '—'])

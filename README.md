@@ -189,3 +189,14 @@ MIT
 - 按裁决文档（cross-sessions-face.md）契约收敛：SessionListState 无 current/currentSessionId 字段，「当前会话」宿主真源是 uiWorkspace（retain source:'mainView'）。
 - `deriveCurrentSessionId(snap, uiWorkspaceTarget)`：第 2 参数（调用方传入已抓取 uiWorkspace 的当前 target）有值时**直接采纳**，无值走原快照软信号链（保留为 fallback）。
 - 新增 `pickUiWorkspaceTargetId(uw)`：防御性读取 mainView.sessionId/target/current → currentTarget/target/sessionId；`currentSessionId()` 已接入。
+
+## 0.2.8 · Bug 猎场修复（P1 + P2×2）
+
+- **[P1] 删除会话确认键永久禁用**：confirmDelete 读 `snap.current`——0.2.0 的
+  SessionListState（ids/byId/phase/projectionsBySession）无此字段 → `cur` 恒 null →
+  `disabled: busy || !cur` 恒真，唯一破坏性路径点不动。改 `currentSessionId()`。
+- **[P2] DevInfo 当前会话恒 '—'**：同 `snap.current` 问题，同修。
+- **[P2] 新建会话从不打开**：`ISessions.create()` 返回 SessionId 字符串，原代码
+  读 `s.id`（undefined）→ 从不 openSession；且 toast 在 resolve 前弹、rejection
+  被吞（失败也报成功）。字符串/对象双形态解析 + 成功后才 toast + 打开 +
+  `toast.newFail` 失败反馈（双语）。
